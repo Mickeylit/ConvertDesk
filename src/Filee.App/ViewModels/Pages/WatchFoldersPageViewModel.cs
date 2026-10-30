@@ -129,7 +129,7 @@ public sealed partial class WatchFoldersPageViewModel : ObservableObject, IDispo
             return [];
         try
         {
-            return Directory.EnumerateFiles(rule.Folder).Take(500).Where(path => !FolderWatcher.ShouldIgnore(path, rule))
+            return Directory.EnumerateFiles(rule.Folder).Take(500).Where(ProductFormatPolicy.IsAllowedPath).Where(path => !FolderWatcher.ShouldIgnore(path, rule))
                 .Select(Path.GetFileName).OfType<string>().Take(8).ToList();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -151,7 +151,7 @@ public sealed partial class WatchFoldersPageViewModel : ObservableObject, IDispo
         var start = typed.Trim().TrimStart('*').TrimStart('.');
         if (start.Length == 0 || start.IndexOfAny(['*', '?', '/']) >= 0)
             return [];
-        return FormatRegistry.Known
+        return ProductFormatPolicy.Formats
             .SelectMany(format => format.Extensions.Select(extension => (Extension: extension, Format: format)))
             .Where(e => e.Extension.StartsWith(start, StringComparison.OrdinalIgnoreCase) && !e.Extension.Contains('.'))
             .Select(e => new TagSuggestion($"*.{e.Extension}", $"*.{e.Extension}", e.Format.DisplayName))
@@ -169,7 +169,7 @@ public sealed partial class WatchFoldersPageViewModel : ObservableObject, IDispo
         try
         {
             var option = rule.IncludeSubfolders ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-            return Directory.EnumerateFiles(rule.Folder, "*", option).Take(5000).Count(path => !FolderWatcher.ShouldIgnore(path, rule));
+            return Directory.EnumerateFiles(rule.Folder, "*", option).Take(5000).Where(ProductFormatPolicy.IsAllowedPath).Count(path => !FolderWatcher.ShouldIgnore(path, rule));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

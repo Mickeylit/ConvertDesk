@@ -1,5 +1,47 @@
 # Third-party notices
 
+## ConvertDesk 0.2 distribution scope
+
+ConvertDesk is an independent derivative of [Filee](https://github.com/KnifeLemon/Filee), originally
+Copyright (c) 2026 Myeonggu Kim (KnifeLemon) and Filee contributors. The original MIT copyright and permission
+notice is preserved in [LICENSE](LICENSE). ConvertDesk is not an official Filee release.
+
+The current macOS package bundles these unmodified, separately executed document engines:
+
+| Component | Version | License and bundled text | Matching source |
+|---|---|---|---|
+| rhwp | 0.8.7 | MIT; [licenses/rhwp-LICENSE](licenses/rhwp-LICENSE) | [edwardkim/rhwp, tag v0.8.7](https://github.com/edwardkim/rhwp/tree/v0.8.7), [source archive](https://github.com/edwardkim/rhwp/archive/refs/tags/v0.8.7.tar.gz) |
+| Pandoc | 3.12 | GPL-2.0-or-later; [licenses/Pandoc-COPYING](licenses/Pandoc-COPYING), [copyright and dependency notices](licenses/Pandoc-COPYRIGHT) | [jgm/pandoc, tag 3.12](https://github.com/jgm/pandoc/tree/3.12), [source archive](https://github.com/jgm/pandoc/archive/refs/tags/3.12.tar.gz), [build instructions](https://github.com/jgm/pandoc/blob/3.12/INSTALL.md) |
+
+rhwp is Copyright (c) 2025–2026 Edward Kim. Pandoc's release notice states Copyright (C) 2006–2024 John MacFarlane;
+its full copyright and third-party notices are reproduced in `licenses/Pandoc-COPYRIGHT`.
+Each engine retains its own license; the MIT license of the application does not replace Pandoc's GPL.
+Redistributors must preserve these notices and satisfy the corresponding source requirements of the components
+they distribute. The source links above identify the versions used by this package.
+
+The engine binaries come from the corresponding upstream release assets. The build manifest pins their
+SHA-256 checksums, and the packaging script includes this notice, the application license, and the `licenses/`
+directory in `ConvertDesk.app/Contents/Resources/`.
+
+**7-Zip, FFmpeg, and calibre are not bundled in ConvertDesk.** LibreOffice, Ghostscript and Tesseract are also
+not included in the standard package; when separately configured, their own licenses continue to apply.
+The managed and native libraries carried over by the application keep their original licenses listed below.
+Some inherited code and dependencies remain in the source tree even though the product exposes only
+HTML, PDF, PPTX, DOCX and TXT.
+
+The document-only build (`ConvertDeskDocumentsOnly=true`) excludes ACadSharp, SharpGLTF.Core, MimeKitLite,
+MsgReader, YamlDotNet, Tomlyn, Unhwp, ExcelDataReader and ExcelNumberFormat, together with the no-longer-needed
+transitive packages Microsoft.IO.RecyclableMemoryStream, Microsoft.Maui.Graphics, OpenMcdf, RtfPipe and UTF.Unknown.
+Their entries below are retained **only as upstream attribution and historical notices**, not as a claim that
+these libraries are included in the current document package. The default full-engine development build still
+uses them. Retained document/image/PDF dependencies keep their applicable notices below.
+
+## Historical upstream Filee notices
+
+The following upstream notice list is retained for attribution and source history. It describes the broader
+Filee distribution, including its optional engines, installers and features. It is **not** the current
+ConvertDesk bundle inventory and does not claim that these features are exposed by ConvertDesk.
+
 Filee is MIT-licensed. It uses and redistributes the following third-party software.
 Each component remains under its own license.
 

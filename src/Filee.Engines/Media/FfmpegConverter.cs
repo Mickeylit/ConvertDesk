@@ -523,14 +523,7 @@ public sealed partial class FfmpegConverter(ILogger? logger = null) : IConverter
     }
 
     /// <summary>Both tools must come from the same installation.</summary>
-    internal static (string Ffmpeg, string Ffprobe)? Locate()
-    {
-        var folder = EngineEnvironment.OwnCopyFolder("ffmpeg")
-            ?? (EngineEnvironment.FindBundled("ffmpeg") is { } bundled ? EngineEnvironment.FolderWithPrograms("ffmpeg", bundled) : null)
-            ?? EngineEnvironment.SystemCopyFolder("ffmpeg");
-        return folder is null ? null : (Path.Combine(folder, EngineEnvironment.ProgramName("ffmpeg.exe")),
-            Path.Combine(folder, EngineEnvironment.ProgramName("ffprobe.exe")));
-    }
+    internal static (string Ffmpeg, string Ffprobe)? Locate() => FfmpegTools.Locate();
 
     /// <summary>"9.0.2" from <c>ffmpeg -version</c>; cached per executable so re-checking the engines stays cheap.</summary>
     /// <exception cref="InvalidOperationException">FFmpeg does not start, fails or does not answer within <paramref name="timeout"/>.</exception>

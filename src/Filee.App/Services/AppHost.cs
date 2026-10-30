@@ -6,7 +6,6 @@ using Filee.Core.Conversion;
 using Filee.Core.Localization;
 using Filee.Core.Platform;
 using Filee.Core.Settings;
-using Filee.Core.Web;
 using Filee.Engines;
 using Filee.Engines.Infrastructure;
 using Filee.Platform.Linux;
@@ -49,7 +48,7 @@ public static class AppHost
 
         // Conversion engines
         services.AddSingleton(_ => new EngineEnvironment(dataDir));
-        services.AddSingleton(sp => EngineRegistry.CreateAll(sp.GetRequiredService<EngineEnvironment>(), sp.GetRequiredService<ILoggerFactory>()));
+        services.AddSingleton(sp => EngineRegistry.CreateDocumentConverters(sp.GetRequiredService<EngineEnvironment>(), sp.GetRequiredService<ILoggerFactory>()));
         services.AddSingleton(sp => new ConverterCatalog(sp.GetRequiredService<IReadOnlyList<IConverter>>()));
         services.AddSingleton(sp => new JobQueue(
             sp.GetRequiredService<ConverterCatalog>(),
@@ -58,23 +57,24 @@ public static class AppHost
             EngineRegistry.FindFileCombiner(sp.GetRequiredService<IReadOnlyList<IConverter>>()),
             EngineRegistry.FindTiffMerger(sp.GetRequiredService<IReadOnlyList<IConverter>>()),
             EngineRegistry.FindMediaJoiner(sp.GetRequiredService<IReadOnlyList<IConverter>>()),
-            sp.GetRequiredService<IPlatformServices>().MoveToTrash));
+            sp.GetRequiredService<IPlatformServices>().MoveToTrash,
+            enforceProductFormats: true));
 
-        // Files dragged from a browser with only an address are downloaded without the browser's cookies.
-        services.AddSingleton(_ => new WebDownloader(userAgent: $"Filee/{typeof(AppHost).Assembly.GetName().Version?.ToString(3)}"));
         services.AddSingleton<EngineDownloadService>();
         services.AddSingleton<PresetAvailability>();
         services.AddSingleton<RadialViewModel>();
         services.AddSingleton<ConversionService>();
-        services.AddSingleton<SpreadsheetPrintService>();
-        services.AddSingleton<WatchFolderService>();
         services.AddSingleton<TriggerService>();
         services.AddSingleton<RadialController>();
-        services.AddSingleton<TrayService>();
+        services.AddSingleton(sp => new TrayService(sp.GetRequiredService<UserDataStore>(),
+            sp.GetRequiredService<ILocalizer>(), sp.GetRequiredService<IPlatformServices>(), sp.GetRequiredService<WindowService>()));
+#if !CONVERTDESK_DOCUMENTS_ONLY
+        // Compatibility services for the retained upstream test harness, never in the document distribution.
         services.AddSingleton<UpdateService>();
+        services.AddSingleton<WhatsNewService>();
+#endif
         services.AddSingleton<MemoryTrimmer>();
         services.AddSingleton<WindowService>();
-        services.AddSingleton<WhatsNewService>();
 
         _services = services.BuildServiceProvider();
         return _services;

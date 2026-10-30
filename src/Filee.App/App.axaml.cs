@@ -7,6 +7,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using Filee.App.Controls;
 using Filee.App.Services;
+using Filee.App.Services.Documents;
 using Filee.App.Services.Triggers;
 using Filee.Core.Conversion;
 using Filee.Core.Localization;
@@ -54,7 +55,7 @@ public partial class App : Application
         if (OperatingSystem.IsMacOS())
             Filee.Platform.MacOS.MacOSServicesProvider.Register(
                 files => Dispatcher.UIThread.Post(() => HandleCommandLine(CommandLine.Parse(["--convert", .. files]))),
-                types => log.LogWarning("Convert with Filee was picked, but the request named no existing file; it held: {Types}",
+                types => log.LogWarning("Convert with ConvertDesk was picked, but the request named no existing file; it held: {Types}",
                     types.Count == 0 ? "nothing" : string.Join(", ", types)));
         // Exceptions in UI event handlers end Filee; write them down first (they are not marked handled).
         Dispatcher.UIThread.UnhandledException += (_, e) =>
@@ -121,41 +122,20 @@ public partial class App : Application
             }
         };
         triggers.Start();
-        log.LogInformation("Filee {Version} started", UpdateService.CurrentVersion);
+        log.LogInformation("ConvertDesk {Version} started", ProductInfo.Version);
         // Which way the transparent windows (donut, toast) are drawn, for reports of one that isn't see-through (#269).
         if (OperatingSystem.IsWindows())
         {
             log.LogInformation("{Rendering}", WindowsRendering.Describe(Environment.GetEnvironmentVariable(WindowsRendering.Variable)));
             TransparentWindows.Watch(log);
         }
-        // macOS: ask for Accessibility with the system's own alert when the user opened Filee (not at sign-in) and
-        // a drag gesture is on, once ever (see ShouldAskForPermission). The home page keeps a reminder until it is
-        // given. Asked once the main window is up: asked earlier, the alert ends up behind it.
-        if (OperatingSystem.IsMacOS() && !Program.Options.Background
-            && platform is Filee.Platform.MacOS.MacOSPlatformServices mac
-            && TriggerService.ShouldAskForPermission(store.Settings, triggers.NeedsPermission))
-            DispatcherTimer.RunOnce(() =>
-            {
-                if (!OperatingSystem.IsMacOS() || !TriggerService.ShouldAskForPermission(store.Settings, triggers.NeedsPermission))
-                    return;
-                store.Settings.AccessibilityPromptShown = true;
-                store.SaveSettings();
-                mac.RequestAccessibilityPermission();
-            }, TimeSpan.FromSeconds(1.5));
-
+        // System-wide gestures are optional. Permissions are requested only from the explicit settings action.
         store.SettingsChanged += (_, _) => ApplySettings(store.Settings);
 
         AppHost.Get<TrayService>().Create(this);
         AppHost.Get<WindowService>().EnsureToast();
-        AppHost.Get<ConversionService>().FeedbackDue += (_, _) => AppHost.Get<WindowService>().ShowFeedbackNotice();
-        AppHost.Get<WatchFolderService>().Start();
-        // Originals of files from a browser that a crash kept from being deleted ("Save only the converted file").
-        _ = Task.Run(() => Filee.Core.Web.WebDrop.DeleteStale(Filee.Core.Web.WebDrop.DefaultWorkRoot, TimeSpan.FromDays(1)));
         // Likewise the work folders of conversions that never got to clean up after themselves.
         _ = Task.Run(() => JobQueue.DeleteStaleWorkFolders(JobQueue.DefaultWorkRoot, TimeSpan.FromDays(1)));
-        // Leftover update workspaces from cancelled or failed in-app updates (Linux only).
-        if (OperatingSystem.IsLinux())
-            _ = Task.Run(() => UpdateService.DeleteStaleWorkspaces());
         // Once LibreOffice is installed: prepare its profiles while the user isn't converting yet.
         AppHost.Get<EngineDownloadService>().WarmUpInBackground(TimeSpan.FromSeconds(10));
 
@@ -166,21 +146,17 @@ public partial class App : Application
 
         desktop.Exit += (_, _) =>
         {
+            _convertDebounce?.Dispose();
+            _pendingConvertFiles.Clear();
             UiZoom.Flush();
             watchdog.Dispose();
             AppHost.Get<MemoryTrimmer>().Dispose();
             AppHost.Get<TriggerService>().Dispose();
             AppHost.Get<TrayService>().Dispose();
-            AppHost.Get<WatchFolderService>().DisposeAsync().AsTask().Wait(TimeSpan.FromSeconds(5));
+            DocumentShutdown.Stop(AppHost.Get<ConversionService>(), AppHost.Get<JobQueue>(), log: log);
         };
 
-        // Before HandleCommandLine marks the first run complete: a fresh install gets no slides (an update by the
-        // installer does, even when its settings are gone). Without the main window (sign-in, the Explorer menu) they
-        // wait until the user opens Filee, unless the installer asked for them.
-        AppHost.Get<WhatsNewService>().CheckAtStartup(
-            background: Program.Options.Background && !Program.Options.ShowSettings && !Program.Options.WhatsNew
-                        || Program.Options.ConvertFiles.Count > 0,
-            updated: Program.Options.WhatsNew, updatedFrom: Program.Options.UpdatedFrom);
+        // This independent build does not show the upstream release slideshow.
         HandleCommandLine(Program.Options, firstLaunch: true);
         if (OperatingSystem.IsMacOS())
             this.TryGetFeature<IActivatableLifetime>()?.Activated += (_, e) =>
@@ -195,7 +171,6 @@ public partial class App : Application
                             log.LogWarning("Could not restore the macOS Dock visibility policy after reopening Filee");
                     });
             };
-        WatchForUpdates(store);
         // Filee runs as administrator while Explorer doesn't (an installer started "as administrator" started it):
         // say so once, next to the tray, and on the Home page for as long as it lasts.
         if (AppHost.Get<ElevationService>().ShellCannotReachFilee)
@@ -211,52 +186,6 @@ public partial class App : Application
             Dispatcher.UIThread.Post(() => HandleCommandLine(CommandLine.Parse(args), forwarded: true));
         };
         instance.StartListening();
-    }
-
-    /// <summary>
-    /// Looks for new releases in the background. A new version shows up at the bottom of the navigation and in the
-    /// tray menu; the bottom-right notice appears once per version.
-    /// </summary>
-    private static void WatchForUpdates(UserDataStore store)
-    {
-        var updates = AppHost.Get<UpdateService>();
-        updates.RequestApplicationShutdown = Quit;
-        // Required: the card every time Filee starts (UpdateFound fires once per run). Recommended: once per version.
-        // Optional: no card, the sidebar button only. Frequent releases no longer ask every day.
-        updates.UpdateFound += (_, version) =>
-        {
-            if (updates.Level == UpdateLevel.Optional
-                || updates.Level == UpdateLevel.Recommended && store.Settings.NotifiedUpdateVersion == version)
-                return;
-            store.Settings.NotifiedUpdateVersion = version;
-            store.SaveSettings();
-            AppHost.Get<WindowService>().ShowUpdateNotice(version);
-        };
-        updates.UpdateFailed += async (_, _) => await AppHost.Get<WindowService>().ShowUpdateFailedAsync();
-        // The last run's update failed after Filee closed (Linux): the installer rolled back and started this copy.
-        if (updates.CheckPendingFailure(store.Directory))
-            Dispatcher.UIThread.Post(async () => await AppHost.Get<WindowService>().ShowUpdateRolledBackAsync(updates.LastFailureLogPath));
-        updates.StartPeriodicChecks(() => store.Settings.CheckForUpdates, TimeSpan.FromSeconds(20));
-        DispatcherTimer.RunOnce(() => NotifyEngineUpdates(store), TimeSpan.FromSeconds(25));
-    }
-
-    /// <summary>
-    /// Engines the user downloaded that are older than the versions this Filee pins (it was updated since): one
-    /// notice per new version, only to people who installed that engine, and only while update checks are on.
-    /// </summary>
-    private static void NotifyEngineUpdates(UserDataStore store)
-    {
-        if (!store.Settings.CheckForUpdates)
-            return;
-        var downloads = AppHost.Get<EngineDownloadService>();
-        downloads.RefreshStatus();
-        var outdated = downloads.Outdated;
-        if (!outdated.Any(p => store.Settings.NotifiedEngineVersions.GetValueOrDefault(p.Package.Id) != p.Version))
-            return;
-        foreach (var package in outdated)
-            store.Settings.NotifiedEngineVersions[package.Package.Id] = package.Version ?? "";
-        store.SaveSettings();
-        AppHost.Get<WindowService>().ShowEngineUpdateNotice(outdated);
     }
 
     /// <summary>Applies everything derived from settings. Called at start-up and whenever settings are saved.</summary>
@@ -296,7 +225,7 @@ public partial class App : Application
         // Pairs with "A later launch handed over …": the request reached the UI thread too.
         if (forwarded && Throttle.TryEnter("forwarded-handled", out var held))
             AppHost.Get<ILogger<App>>().LogInformation("Handling a later launch: {Request}{Held}",
-                options.Quit ? "quit" : options.ConvertFiles.Count > 0 ? $"convert {options.ConvertFiles.Count} file(s)" : "show Filee",
+                options.Quit ? "quit" : options.ConvertFiles.Count > 0 ? $"convert {options.ConvertFiles.Count} file(s)" : "show ConvertDesk",
                 LogThrottle.HeldText(held));
         if (options.Quit)
         {
@@ -325,13 +254,6 @@ public partial class App : Application
             // Picked on the installer's engine page: download them now. Picking none answers the first-run question.
             if (engines.Count > 0)
                 AppHost.Get<WindowService>().ShowEngineSetup(engines);
-        }
-        else if (!store.Settings.FirstRunCompleted)
-        {
-            // The installer only contains the small engines: offer the large ones on first run (portable zip, or an
-            // installation that skipped the engine page).
-            if (AppHost.Get<EngineDownloadService>().Packages.Any(p => !p.IsInstalled))
-                AppHost.Get<WindowService>().ShowEngineSetup();
         }
         if (!store.Settings.FirstRunCompleted)
         {

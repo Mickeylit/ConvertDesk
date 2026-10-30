@@ -73,10 +73,10 @@ public sealed partial class PresetFormatTip(
 
         if (!preset.PacksIntoOneArchive)
         {
-            var usable = availability.UsableFormats(preset, FormatRegistry.Known);
+            var usable = availability.UsableFormats(preset, ProductFormatPolicy.Formats);
             if (usable.Count == 0)
             {
-                Reason = availability.Check(preset, FormatRegistry.Known);
+                Reason = availability.Check(preset, ProductFormatPolicy.Formats);
                 return;
             }
 

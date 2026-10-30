@@ -41,7 +41,7 @@ internal static class StartupDiagnostics
     /// </summary>
     public static string Describe(string version, string? executable, string installKind, ElevationState elevation,
         string operatingSystem, int argumentCount) =>
-        $"Filee {version} starting: {executable ?? "(unknown path)"} ({installKind}), {elevation}, {operatingSystem}, " +
+        $"ConvertDesk {version} starting: {executable ?? "(unknown path)"} ({installKind}), {elevation}, {operatingSystem}, " +
         $"{argumentCount} argument(s)";
 
     /// <summary>How this copy got here: Setup, a release archive, or a build from source.</summary>

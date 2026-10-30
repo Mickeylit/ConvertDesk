@@ -65,18 +65,20 @@ public sealed partial class PresetEditorViewModel : ObservableObject
         _edit = preset.Clone();
         _loc = loc;
 
-        // ~150 formats in registry order, which groups them by category; the category is shown next to each name
-        // and typing the first letters of a name jumps to it.
+        // Only the product's document formats can be selected as final output. Internal
+        // route formats remain in FormatRegistry for the conversion engine.
         Targets =
         [
-            new Choice<string>(BuiltInData.SameAsSource, loc["presets.same_as_source"]),
-            .. FormatRegistry.Known
+            .. ProductFormatPolicy.Formats
                 .Where(f => f.Writable)
                 .Select(f => new Choice<string>(
                     f.Id,
-                    f.Id == FormatRegistry.Folder ? loc["presets.target_folder"] : f.DisplayName,
+                    f.DisplayName,
                     FormatLabels.Category(loc, f.Category))),
         ];
+        if (!ProductFormatPolicy.IsAllowedFormatId(_edit.TargetFormat))
+            _edit.TargetFormat = "pdf";
+        _edit.Output.ZipResult = false;
         ResizeModes = Enum.GetValues<ResizeMode>().Select(v => new Choice<ResizeMode>(v, loc[$"presets.resize.{v}"])).ToList();
         Rotations = Enum.GetValues<ImageRotation>().Select(v => new Choice<ImageRotation>(v, loc[$"presets.rotation.{v}"])).ToList();
         Flips = Enum.GetValues<ImageFlip>().Select(v => new Choice<ImageFlip>(v, loc[$"presets.flip.{v}"])).ToList();
@@ -680,7 +682,7 @@ public sealed partial class PresetEditorViewModel : ObservableObject
     private static double SizeLimit(decimal? megabytes) => (double)Math.Clamp(megabytes ?? 0, 0, 4096);
 
     public string? NameError => string.IsNullOrWhiteSpace(Name) ? _loc["presets.name_required"] : null;
-    public bool IsValid => NameError is null;
+    public bool IsValid => NameError is null && ProductFormatPolicy.IsAllowedFormatId(TargetId);
 
     /// <summary>Writes the edits into the original preset. Returns false if the input is invalid.</summary>
     public bool Apply()

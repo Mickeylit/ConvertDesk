@@ -554,7 +554,7 @@ public sealed partial class ToolbarPageViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task NewPreset()
     {
-        var preset = new Preset { Name = _loc["toolbar.new_preset"], TargetFormat = "png" };
+        var preset = new Preset { Name = _loc["toolbar.new_preset"], TargetFormat = "pdf" };
         if (!await _windows.EditPresetAsync(preset, _windows.Main))
             return;
         _store.Presets.Add(preset);
@@ -568,7 +568,13 @@ public sealed partial class ToolbarPageViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void AddProfile()
     {
-        var profile = new ToolbarProfile { Name = _loc["toolbar.profile_new"], PresetIds = ["to-pdf", "to-png"], BackPresetIds = [] };
+        var profile = new ToolbarProfile
+        {
+            Name = _loc["toolbar.profile_new"],
+            Extensions = ["html", "htm", "xhtml", "pdf", "pptx", "docx", "txt"],
+            PresetIds = ["to-pdf", "to-docx", "to-pptx", "to-html", "to-txt"],
+            BackPresetIds = [],
+        };
         // Before the mixed-selection profiles (normal ones come first; see Reposition).
         var index = _store.Profiles.FindIndex(p => p.IsFallback);
         index = index < 0 ? _store.Profiles.Count : index;

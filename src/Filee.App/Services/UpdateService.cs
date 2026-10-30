@@ -36,6 +36,9 @@ public enum UpdateStep
 
 public sealed partial class UpdateService : ObservableObject
 {
+    /// <summary>This fork has no release feed. Never use upstream releases to replace ConvertDesk.</summary>
+    public static bool UpdatesEnabled => false;
+
     /// <summary>How often a running Filee (it lives in the tray for days) looks for a new version.</summary>
     private static readonly TimeSpan CheckInterval = TimeSpan.FromHours(6);
 
@@ -216,6 +219,7 @@ public sealed partial class UpdateService : ObservableObject
     /// <summary>Checks the latest release now. Returns the newer version, or null when up to date or offline.</summary>
     public async Task<string?> CheckAsync(CancellationToken cancellationToken = default)
     {
+        if (!UpdatesEnabled) return null;
         await RefreshAsync(announce: true, cancellationToken);
         return LatestVersion;
     }
@@ -227,6 +231,7 @@ public sealed partial class UpdateService : ObservableObject
     /// </summary>
     internal async Task<bool> RefreshAsync(bool announce, CancellationToken cancellationToken = default)
     {
+        if (!UpdatesEnabled) return false;
         try
         {
             var api = RepositoryUrl.TrimEnd('/').Replace("https://github.com/", "https://api.github.com/repos/", StringComparison.OrdinalIgnoreCase)
@@ -302,6 +307,7 @@ public sealed partial class UpdateService : ObservableObject
     /// <summary>Checks shortly after start and then every few hours while <paramref name="enabled"/> says so.</summary>
     public void StartPeriodicChecks(Func<bool> enabled, TimeSpan firstDelay)
     {
+        if (!UpdatesEnabled) return;
         if (_timer is not null)
             return;
         _timer = new DispatcherTimer { Interval = firstDelay };
@@ -320,6 +326,7 @@ public sealed partial class UpdateService : ObservableObject
     /// </summary>
     public async Task UpdateAsync()
     {
+        if (!UpdatesEnabled) return;
         if (IsBusy)
             return;
         if (!InstallsItself)
@@ -488,6 +495,7 @@ public sealed partial class UpdateService : ObservableObject
     internal async Task<string> DownloadInstallerAsync(string folder, IProgress<int>? progress,
         CancellationToken cancellationToken = default)
     {
+        if (!UpdatesEnabled) throw new NotSupportedException("ConvertDesk updates are not configured.");
         var installer = _installer ?? throw new InvalidOperationException("No installer in the latest release");
         var checksums = _checksums ?? throw new InvalidOperationException("No checksum file in the latest release");
 
@@ -587,6 +595,7 @@ public sealed partial class UpdateService : ObservableObject
     /// <summary>Opens a download page: the website for installed copies, the release page (portable zip) otherwise.</summary>
     public void OpenDownloadPage()
     {
+        if (!UpdatesEnabled) return;
         var url = IsInstalled ? WebsiteUrl : LatestReleaseUrl;
         try
         {

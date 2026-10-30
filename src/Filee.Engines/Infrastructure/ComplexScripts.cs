@@ -18,7 +18,9 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using Filee.Engines.Hwp.Hwpx;
+#if !CONVERTDESK_DOCUMENTS_ONLY
 using Filee.Engines.Office.Sheets;
+#endif
 
 namespace Filee.Engines.Infrastructure;
 
@@ -338,6 +340,7 @@ internal static partial class ComplexScripts
         {
             if (IsZip(path))
                 return FindInPackage(path, format, classifier, skipBelow);
+#if !CONVERTDESK_DOCUMENTS_ONLY
             // Excel 97–2003 is binary: its cells, as the built-in reader reads them (issue #345).
             if (format is "xls" or "xlt")
                 return XlsReader.Read(path).Sheets.SelectMany(sheet => sheet.Rows.Values).SelectMany(cells => cells.Values)
@@ -348,6 +351,7 @@ internal static partial class ComplexScripts
                 var message = MimeKit.MimeMessage.Load(path);
                 return FindInString(message.HtmlBody ?? message.TextBody ?? "", classifier, skipBelow);
             }
+#endif
             return format is "txt" or "md" or "html" or "csv" or "tsv" or "fb2" or "rtf" or "rst" or "tex" or "org" or "adoc"
                 or "typ" or "mediawiki" or "dbk" or "textile" or "man" or "opml"
                 ? FindInText(path, classifier, skipBelow)

@@ -31,13 +31,13 @@ public sealed class SingleInstance : IDisposable
     public static SingleInstance Acquire() => Acquire(DefaultName);
 
     /// <summary>
-    /// The mutex and pipe name for a user. A copy started with FILEE_DATA_DIR (<paramref name="dataDirectoryOverride"/>)
+    /// The mutex and pipe name for a user. A copy started with CONVERTDESK_DATA_DIR (<paramref name="dataDirectoryOverride"/>)
     /// gets a name of its own, so it neither forwards to nor receives from the Filee the user runs.
     /// </summary>
     internal static string NameFor(string userName, string? dataDirectoryOverride)
     {
         var key = dataDirectoryOverride is null ? userName : userName + "|" + dataDirectoryOverride.ToUpperInvariant();
-        return "Filee-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..12];
+        return "ConvertDesk-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)))[..12];
     }
 
     /// <summary>The instance under another name (tests, which must not reach a Filee that is running).</summary>

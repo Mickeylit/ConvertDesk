@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Filee.Core.Formats;
 using Filee.Core.History;
 using Filee.Core.Presets;
 using Filee.Core.Profiles;
@@ -30,17 +31,17 @@ public sealed class UserDataStore
     /// folder and gives that copy its own single instance: a development or test copy then never touches, or talks
     /// to, the Filee the user runs. A copy started with it also leaves the system integration alone.
     /// </summary>
-    public const string DirectoryVariable = "FILEE_DATA_DIR";
+    public const string DirectoryVariable = "CONVERTDESK_DATA_DIR";
 
     /// <summary>The folder <see cref="DirectoryVariable"/> points to (full path), or null when it is not set.</summary>
     public static string? OverrideDirectory => DirectoryFrom(Environment.GetEnvironmentVariable(DirectoryVariable));
 
     /// <summary>
-    /// Default data directory: %APPDATA%\Filee on Windows, ~/Library/Application Support/Filee on macOS, or the
+    /// Default data directory: %APPDATA%\ConvertDesk on Windows, ~/Library/Application Support/ConvertDesk on macOS, or the
     /// folder in <see cref="DirectoryVariable"/>.
     /// </summary>
     public static string DefaultDirectory =>
-        OverrideDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Filee");
+        OverrideDirectory ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ConvertDesk");
 
     internal static string? DirectoryFrom(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : Path.TrimEndingDirectorySeparator(Path.GetFullPath(value.Trim()));
@@ -48,8 +49,8 @@ public sealed class UserDataStore
     public string Directory { get; }
 
     public AppSettings Settings { get; private set; } = new();
-    public List<Preset> Presets { get; private set; } = BuiltInData.CreatePresets();
-    public List<ToolbarProfile> Profiles { get; private set; } = BuiltInData.CreateProfiles();
+    public List<Preset> Presets { get; private set; } = ProductDefaults.CreatePresets();
+    public List<ToolbarProfile> Profiles { get; private set; } = ProductDefaults.CreateProfiles();
     public List<HistoryEntry> History { get; private set; } = [];
 
     /// <summary>Raised after settings were saved.</summary>
@@ -71,14 +72,15 @@ public sealed class UserDataStore
     {
         System.IO.Directory.CreateDirectory(Directory);
         Settings = Read(SettingsPath, FileeJsonContext.Default.AppSettings) ?? new AppSettings();
-        Presets = Read(PresetsPath, FileeJsonContext.Default.ListPreset) ?? BuiltInData.CreatePresets();
-        Profiles = Read(ProfilesPath, FileeJsonContext.Default.ListToolbarProfile) ?? BuiltInData.CreateProfiles();
+        Presets = Read(PresetsPath, FileeJsonContext.Default.ListPreset) ?? ProductDefaults.CreatePresets();
+        Profiles = Read(ProfilesPath, FileeJsonContext.Default.ListToolbarProfile) ?? ProductDefaults.CreateProfiles();
         History = Read(HistoryPath, FileeJsonContext.Default.ListHistoryEntry) ?? [];
 
         var schema = Settings.SchemaVersion;
         SettingsMigrations.Apply(Settings);
         var libraryChanged = File.Exists(ProfilesPath) && SettingsMigrations.ApplyToLibrary(schema, Presets, Profiles);
         EnsureConsistency();
+        libraryChanged |= ApplyProductFormatPolicy();
 
         // Persist upgrades right away so they run once, even if the user never changes a setting.
         if (schema < AppSettings.CurrentSchemaVersion && File.Exists(SettingsPath))
@@ -119,6 +121,7 @@ public sealed class UserDataStore
     public void SaveLibrary()
     {
         EnsureConsistency();
+        ApplyProductFormatPolicy();
         Write(PresetsPath, Presets, FileeJsonContext.Default.ListPreset);
         Write(ProfilesPath, Profiles, FileeJsonContext.Default.ListToolbarProfile);
         LibraryChanged?.Invoke(this, EventArgs.Empty);
@@ -163,8 +166,9 @@ public sealed class UserDataStore
     /// <summary>Replaces presets and profiles with factory defaults.</summary>
     public void ResetLibrary()
     {
-        Presets = BuiltInData.CreatePresets();
-        Profiles = BuiltInData.CreateProfiles();
+        Presets = ProductDefaults.CreatePresets();
+        Profiles = ProductDefaults.CreateProfiles();
+        ApplyProductFormatPolicy();
         SaveLibrary();
     }
 
@@ -175,7 +179,7 @@ public sealed class UserDataStore
     /// </summary>
     public bool CanResetProfile(ToolbarProfile profile) =>
         Profiles.Contains(profile)
-        && BuiltInData.CreateProfiles().FirstOrDefault(p => p.Id == profile.Id) is { } builtIn
+        && ProductDefaults.CreateProfiles().FirstOrDefault(p => p.Id == profile.Id) is { } builtIn
         && (builtIn.IsFallback || !profile.IsFallback || Profiles.Count(p => p.IsFallback) > 1);
 
     /// <summary>
@@ -191,7 +195,7 @@ public sealed class UserDataStore
     {
         if (!CanResetProfile(profile))
             return false;
-        var builtIn = BuiltInData.CreateProfiles().Single(p => p.Id == profile.Id);
+        var builtIn = ProductDefaults.CreateProfiles().Single(p => p.Id == profile.Id);
         RestoreBuiltInPresets([.. builtIn.PresetIds, .. builtIn.BackPresetIds ?? []]);
 
         // Extensions checked on a mixed-selection profile only limit that profile; they don't claim files.
@@ -218,7 +222,7 @@ public sealed class UserDataStore
     /// built-in group among them fans out, each after the built-in preset before it (as a new library orders them).</summary>
     private void RestoreBuiltInPresets(IEnumerable<string> ids)
     {
-        var defaults = BuiltInData.CreatePresets();
+        var defaults = ProductDefaults.CreatePresets();
         var members = ids.SelectMany(id => defaults.FirstOrDefault(p => p.Id == id) is { IsGroup: true } group ? group.SubPresetIds : []);
         foreach (var id in ids.Concat(members).Distinct().Where(id => FindPreset(id) is null).ToList())
         {
@@ -250,7 +254,9 @@ public sealed class UserDataStore
         var bundle = JsonSerializer.Deserialize(stream, FileeJsonContext.Default.PresetBundle)
                      ?? throw new InvalidDataException("Empty preset bundle.");
 
-        foreach (var preset in bundle.Presets)
+        // Unsupported entries must not replace a valid local item with the same id.
+        var importedPresets = bundle.Presets.Where(ProductFormatPolicy.IsAllowedPreset).ToList();
+        foreach (var preset in importedPresets)
         {
             Presets.RemoveAll(p => p.Id == preset.Id);
             Presets.Add(preset);
@@ -259,13 +265,16 @@ public sealed class UserDataStore
         SettingsMigrations.AddBackFaces(Presets, bundle.Profiles);
         // Mixed-selection profiles stay mixed: several may exist, and the catch-all is the first one with nothing
         // checked, so an imported one added at the end never replaces ours.
-        foreach (var profile in bundle.Profiles)
+        var importedProfiles = bundle.Profiles
+            .Where(p => p.IsFallback || p.Extensions.Any(ProductFormatPolicy.IsAllowedExtension)).ToList();
+        foreach (var profile in importedProfiles)
         {
             Profiles.RemoveAll(p => p.Id == profile.Id);
             Profiles.Add(profile);
         }
         SaveLibrary();
-        return bundle.Presets.Count + bundle.Profiles.Count;
+        return importedPresets.Count(p => Presets.Any(saved => saved.Id == p.Id))
+            + importedProfiles.Count(p => Profiles.Any(saved => saved.Id == p.Id));
     }
 
     /// <summary>Removes dangling preset references and guarantees at least one mixed-selection profile.</summary>
@@ -294,11 +303,83 @@ public sealed class UserDataStore
         // Several mixed profiles are fine (each limited to the extensions checked on it); none is not.
         if (!Profiles.Any(p => p.IsFallback))
         {
-            var mixed = BuiltInData.CreateProfiles().First(p => p.IsFallback);
+            var mixed = NewFallbackProfile();
             mixed.PresetIds = mixed.PresetIds.Where(ids.Contains).ToList();
             mixed.BackPresetIds = (mixed.BackPresetIds ?? []).Where(ids.Contains).ToList();
             Profiles.Add(mixed);
         }
+    }
+
+    /// <summary>
+    /// Applies the Studio's document-only format policy to loaded or imported user data.
+    /// This is intentionally done at the persistence boundary so old installations cannot
+    /// reintroduce unsupported formats through a saved profile, preset bundle, or reset.
+    /// </summary>
+    private bool ApplyProductFormatPolicy()
+    {
+        var changed = false;
+        var allowedPresets = Presets.Where(ProductFormatPolicy.IsAllowedPreset).ToList();
+        if (allowedPresets.Count != Presets.Count)
+        {
+            Presets = allowedPresets;
+            changed = true;
+        }
+
+        var conversionIds = Presets.Where(p => !p.IsGroup).Select(p => p.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var preset in Presets)
+        {
+            if (preset.Output.ZipResult)
+            {
+                preset.Output.ZipResult = false;
+                changed = true;
+            }
+            if (preset.IsGroup)
+            {
+                var members = preset.SubPresetIds.Where(conversionIds.Contains).Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Take(Preset.MaxSubPresets).ToList();
+                if (!preset.SubPresetIds.SequenceEqual(members, StringComparer.OrdinalIgnoreCase))
+                {
+                    preset.SubPresetIds = members;
+                    changed = true;
+                }
+            }
+        }
+        changed |= Presets.RemoveAll(p => p.IsGroup && p.SubPresetIds.Count == 0) > 0;
+        var allowedPresetIds = Presets.Select(p => p.Id)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var profile in Profiles.ToList())
+        {
+            changed |= ProductFormatPolicy.SanitizeProfile(profile, allowedPresetIds);
+        }
+
+        var before = Profiles.Count;
+        Profiles = Profiles
+            .Where(p => p.IsFallback || p.Extensions.Count > 0)
+            .ToList();
+        changed |= before != Profiles.Count;
+
+        if (!Profiles.Any(p => p.IsFallback))
+        {
+            // Create the built-in fallback only after filtering its preset ids, so an
+            // empty or legacy profile file can never leave the selector without a catch-all.
+            var fallback = NewFallbackProfile();
+            ProductFormatPolicy.SanitizeProfile(fallback, allowedPresetIds);
+            Profiles.Add(fallback);
+            changed = true;
+        }
+
+        return changed;
+    }
+
+    private ToolbarProfile NewFallbackProfile()
+    {
+        var fallback = ProductDefaults.CreateProfiles().Single();
+        // An imported normal profile may already use the factory id. Keep it and give
+        // the recovery fallback a distinct id so edits never affect both profiles.
+        if (Profiles.Any(p => p.Id == fallback.Id))
+            fallback.Id = $"documents-{Guid.NewGuid():N}";
+        return fallback;
     }
 
     private T? Read<T>(string path, JsonTypeInfo<T> type) where T : class

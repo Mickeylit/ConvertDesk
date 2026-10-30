@@ -1,0 +1,23 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Filee.App.ViewModels.Pages"
+             xmlns:c="using:Filee.App.Controls"
+             x:Class="Filee.App.Views.Pages.DocumentAboutPage"
+             x:DataType="vm:DocumentAboutPageViewModel">
+  <StackPanel Spacing="18">
+    <TextBlock Classes="h1" Text="ConvertDesk" />
+    <TextBlock Classes="caption" Text="{Binding Version}" />
+    <TextBlock FontSize="18" Text="{Binding Description}" />
+    <TextBlock Classes="muted" Text="HTML · PDF · PPTX · DOCX · TXT" />
+    <TextBlock Text="{Binding Privacy}" TextWrapping="Wrap" />
+    <Border Height="1" Background="{DynamicResource SubtleBorderBrush}" />
+    <TextBlock Text="{Binding Attribution}" TextWrapping="Wrap" />
+    <TextBlock Classes="caption" Text="{Binding RepositoryUrl}" />
+    <Expander Header="{Binding LicenseTitle}" HorizontalContentAlignment="Stretch">
+      <StackPanel Spacing="20">
+        <SelectableTextBlock Text="{Binding OriginalLicense}" TextWrapping="Wrap" FlowDirection="LeftToRight" />
+        <c:MarkdownView Markdown="{Binding Notices}" SkipTitle="True" FlowDirection="LeftToRight" />
+      </StackPanel>
+    </Expander>
+  </StackPanel>
+</UserControl>

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <ConvertDeskDocumentsOnly>true</ConvertDeskDocumentsOnly>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Filee.Engines/Filee.Engines.csproj" AdditionalProperties="ConvertDeskDocumentsOnly=true" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Exercise the actual reduced assembly with the same fixtures used by the upstream/full build. -->
+    <Compile Include="../Filee.Engines.Tests/ConvertDeskDocumentTests.cs" Link="ConvertDeskDocumentTests.cs" />
+    <Compile Include="../Filee.Engines.Tests/PlainTextSlidePaginationTests.cs" Link="PlainTextSlidePaginationTests.cs" />
+    <Compile Include="../Filee.Engines.Tests/GlyphPdfBuilder.cs" Link="GlyphPdfBuilder.cs" />
+    <Compile Include="../Filee.Engines.Tests/DocxBuilder.cs" Link="DocxBuilder.cs" />
+    <Compile Include="../Filee.Engines.Tests/OfficeBuilders.cs" Link="OfficeBuilders.cs" />
+    <Compile Include="../Filee.Engines.Tests/PdfBuilder.cs" Link="PdfBuilder.cs" />
+  </ItemGroup>
+</Project>

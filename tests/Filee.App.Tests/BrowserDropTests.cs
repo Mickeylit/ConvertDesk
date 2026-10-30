@@ -336,7 +336,6 @@ public class BrowserDropTests
             Pump();
             Assert.Equal(chosen, store.Settings.BrowserDrops.Folder);
             Assert.True(store.Settings.BrowserDrops.SaveOnlyConverted);
-            Assert.Equal(new WebDropOptions(chosen, true), AppHost.Get<ConversionService>().BrowserDropOptions());
         }
         finally
         {

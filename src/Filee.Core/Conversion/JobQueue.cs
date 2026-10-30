@@ -30,6 +30,7 @@ public sealed class JobQueue : IAsyncDisposable
     private readonly HashSet<string> _madeFolders = new(Platform.FileSystemPaths.Comparer);
     private readonly Task _worker;
     private readonly Func<string, Platform.TrashRefusal?>? _moveToTrash;
+    private readonly bool _enforceProductFormats;
     private int _busy;
 
     /// <param name="catalog">Converters and their priority.</param>
@@ -42,10 +43,14 @@ public sealed class JobQueue : IAsyncDisposable
     /// Moves a file to the Recycle Bin / Trash for <see cref="OutputRule.ReplaceOriginal"/>: null when it worked, else
     /// why not. Without it originals are always kept.
     /// </param>
+    /// <param name="enforceProductFormats">Restricts user inputs and final output to ConvertDesk's document formats.
+    /// Internal conversion steps remain unrestricted.</param>
     public JobQueue(ConverterCatalog catalog, IPdfMerger? pdfMerger = null, ILogger<JobQueue>? log = null, IFileCombiner? combiner = null,
-        ITiffMerger? tiffMerger = null, IMediaJoiner? mediaJoiner = null, Func<string, Platform.TrashRefusal?>? moveToTrash = null)
+        ITiffMerger? tiffMerger = null, IMediaJoiner? mediaJoiner = null, Func<string, Platform.TrashRefusal?>? moveToTrash = null,
+        bool enforceProductFormats = false)
     {
         _moveToTrash = moveToTrash;
+        _enforceProductFormats = enforceProductFormats;
         _catalog = catalog;
         _pdfMerger = pdfMerger;
         _combiner = combiner;
@@ -98,39 +103,54 @@ public sealed class JobQueue : IAsyncDisposable
         Directory.CreateDirectory(workDir);
         try
         {
-            if (job.Fetcher is { } fetcher)
-                await FetchSourcesAsync(job, fetcher);
-
-            var planner = _catalog.CreatePlanner();
-            var merge = job.Preset.Pdf.MergeIntoSingle
-                        && job.Preset.TargetFormat == "pdf"
-                        && job.Files.Count > 1
-                        && _pdfMerger is not null;
-            // Any files, one of them or many, archives or not: they go into the archive as they are.
-            var combine = job.Preset.PacksIntoOneArchive && _combiner is not null;
-
-            // One file is enough: a 10-page PDF becomes one 10-page TIFF.
-            var multiPageTiff = job.Preset.Image.MultiPageTiff && job.Preset.TargetFormat == "tiff" && _tiffMerger is not null;
-            // Clips back to back, or pictures one after the other, in the order they were dropped.
-            var join = job.Preset.JoinsIntoOneMedia && _mediaJoiner is not null;
-            // Pictures one under another or side by side, in the order they were dropped.
-            var imageJoiner = job.Preset.JoinsImages ? _catalog.All.OfType<IImageJoiner>().FirstOrDefault() : null;
-
-            if (join)
-                await RunJoinedMediaAsync(job, planner, workDir);
-            else if (imageJoiner is not null)
-                await RunMergedImagesAsync(job, planner, workDir, imageJoiner);
-            else if (merge)
-                await RunMergedAsync(job, planner, workDir);
-            else if (multiPageTiff)
-                await RunMultiPageTiffAsync(job, planner, workDir);
-            else if (combine)
-                await RunCombinedAsync(job, workDir);
+            var allowedPreset = !_enforceProductFormats ||
+                (!job.Preset.IsGroup && !job.Preset.IsTool && !job.Preset.Output.ZipResult
+                 && ProductFormatPolicy.IsAllowedFormatId(job.Preset.TargetFormat));
+            if (!allowedPreset)
+            {
+                foreach (var file in job.Files)
+                    FailFile(job, file, "error.no_route", "ConvertDesk supports HTML, PDF, PPTX, DOCX and TXT output only.");
+            }
             else
-                await Parallel.ForEachAsync(
-                    job.Files.Select((f, i) => (File: f, Index: i + 1)),
-                    new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount, CancellationToken = CancellationToken.None },
-                    async (item, _) => await RunFileAsync(job, item.File, item.Index, planner, workDir, finalOutput: true));
+            {
+                if (job.Fetcher is { } fetcher)
+                    await FetchSourcesAsync(job, fetcher);
+
+                if (_enforceProductFormats)
+                    foreach (var file in job.Files.Where(f => !Stopped(f) && !ProductFormatPolicy.IsAllowedPath(f.SourcePath)))
+                        FailFile(job, file, "error.unsupported_source", "." + FormatRegistry.ExtensionOf(file.SourcePath));
+
+                var planner = _catalog.CreatePlanner();
+                var merge = job.Preset.Pdf.MergeIntoSingle
+                            && job.Preset.TargetFormat == "pdf"
+                            && job.Files.Count > 1
+                            && _pdfMerger is not null;
+                // Any files, one of them or many, archives or not: they go into the archive as they are.
+                var combine = job.Preset.PacksIntoOneArchive && _combiner is not null;
+
+                // One file is enough: a 10-page PDF becomes one 10-page TIFF.
+                var multiPageTiff = job.Preset.Image.MultiPageTiff && job.Preset.TargetFormat == "tiff" && _tiffMerger is not null;
+                // Clips back to back, or pictures one after the other, in the order they were dropped.
+                var join = job.Preset.JoinsIntoOneMedia && _mediaJoiner is not null;
+                // Pictures one under another or side by side, in the order they were dropped.
+                var imageJoiner = job.Preset.JoinsImages ? _catalog.All.OfType<IImageJoiner>().FirstOrDefault() : null;
+
+                if (join)
+                    await RunJoinedMediaAsync(job, planner, workDir);
+                else if (imageJoiner is not null)
+                    await RunMergedImagesAsync(job, planner, workDir, imageJoiner);
+                else if (merge)
+                    await RunMergedAsync(job, planner, workDir);
+                else if (multiPageTiff)
+                    await RunMultiPageTiffAsync(job, planner, workDir);
+                else if (combine)
+                    await RunCombinedAsync(job, workDir);
+                else
+                    await Parallel.ForEachAsync(
+                        job.Files.Select((f, i) => (File: f, Index: i + 1)),
+                        new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount, CancellationToken = CancellationToken.None },
+                        async (item, _) => await RunFileAsync(job, item.File, item.Index, planner, workDir, finalOutput: true));
+            }
 
             job.State = job.CancellationToken.IsCancellationRequested ? JobState.Cancelled
                 : job.Files.All(f => f.State is FileState.Done or FileState.Skipped) ? JobState.Completed

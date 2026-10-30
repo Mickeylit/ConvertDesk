@@ -189,7 +189,8 @@ public sealed class EngineDownloadService
         var http = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
         http.DefaultRequestHeaders.UserAgent.ParseAdd($"Filee/{typeof(EngineDownloadService).Assembly.GetName().Version}");
         _installer = new EngineInstaller(http, logger: logger);
-        Packages = EngineDownloads.Packages.Select(p => new EnginePackageState(p, loc)).ToList();
+        Packages = EngineDownloads.Packages.Where(p => p.Id is "libreoffice" or "pandoc" or "ghostscript" or "tesseract")
+            .Select(p => new EnginePackageState(p, loc)).ToList();
         if (loc is LocalizationService localization)
             localization.LanguageChanged += (_, _) => Packages.ToList().ForEach(p => p.Relocalize());
         RefreshStatus();

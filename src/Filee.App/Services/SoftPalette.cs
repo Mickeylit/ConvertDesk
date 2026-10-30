@@ -12,10 +12,10 @@ namespace Filee.App.Services;
 internal static class SoftPalette
 {
     /// <summary>The default accent colour (the first swatch of the Theme page).</summary>
-    public const string DefaultAccent = "#7F77DD";
+    public const string DefaultAccent = "#286852";
 
     /// <summary>The default corner radius (ThemeSettings.CornerRadius).</summary>
-    public const double DefaultCornerRadius = 16;
+    public const double DefaultCornerRadius = 8;
 
     /// <summary>Embedded Noto fonts (see build/fetch-fonts.ps1). Missing files fall back to system fonts.</summary>
     private const string Latin = "fonts:Filee#Noto Sans";

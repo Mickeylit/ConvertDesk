@@ -1,34 +1,30 @@
-// Drop zone: files dropped on the Home page open the donut (click mode) at the drop position, also pictures, links and
-// downloads dragged from a browser. A double-click opens the file picker, and the donut opens for the picked files.
-
-using Avalonia;
+// This workspace stages local documents. Conversion starts only from its explicit action button.
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using Filee.App.Services;
+using Filee.App.ViewModels.Pages;
 using Microsoft.Extensions.Logging;
 
 namespace Filee.App.Views.Pages;
 
 public partial class HomePage : UserControl
 {
-    /// <summary>
-    /// The first drag over the drop zone of this run is logged: a log without it after "drops don't work" means the
-    /// drag never reached Filee (Windows refuses drops from Explorer into a Filee running as administrator).
-    /// </summary>
-    private static int _dragEnterLogged;
+    private bool _pickerOpen;
 
     public HomePage()
     {
         InitializeComponent();
-        DropZone.DoubleTapped += OnDropZoneDoubleTapped;
+        DropZone.DoubleTapped += async (_, e) =>
+        {
+            e.Handled = true;
+            await ChooseFilesAsync();
+        };
         DragDrop.AddDragEnterHandler(DropZone, (_, e) =>
         {
             DropZone.Classes.Add("over");
-            var files = DraggedFiles.Offered(e.DataTransfer);
-            e.DragEffects = files ? DragDropEffects.Copy : DragDropEffects.None;
-            if (Interlocked.Exchange(ref _dragEnterLogged, 1) == 0)
-                AppHost.Get<ILogger<HomePage>>().LogInformation("First drag over the drop zone (files: {Files})", files);
+            e.DragEffects = DraggedFiles.Offered(e.DataTransfer) ? DragDropEffects.Copy : DragDropEffects.None;
         });
         DragDrop.AddDragOverHandler(DropZone, (_, e) =>
             e.DragEffects = DraggedFiles.Offered(e.DataTransfer) ? DragDropEffects.Copy : DragDropEffects.None);
@@ -36,43 +32,61 @@ public partial class HomePage : UserControl
         DragDrop.AddDropHandler(DropZone, OnDrop);
     }
 
-    private async void OnDropZoneDoubleTapped(object? sender, TappedEventArgs e)
+    private async void OnChooseFiles(object? sender, RoutedEventArgs e) => await ChooseFilesAsync();
+
+    private async Task ChooseFilesAsync()
     {
-        e.Handled = true;
-        if (TopLevel.GetTopLevel(this) is not { } top)
+        if (_pickerOpen || DataContext is not HomePageViewModel vm || TopLevel.GetTopLevel(this) is not { } top)
             return;
-
-        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { AllowMultiple = true });
-
-        var paths = files
-            .Select(f => f.TryGetLocalPath())
-            .Where(p => !string.IsNullOrEmpty(p))
-            .Select(p => p!)
-            .ToList();
-
-        if (paths.Count == 0)
-            return;
-
-        var dropZonePos = e.GetPosition(DropZone);
-        var targetPos = new Rect(0, 0, DropZone.Bounds.Width, DropZone.Bounds.Height).Contains(dropZonePos)
-            ? dropZonePos
-            : new Point(DropZone.Bounds.Width / 2, DropZone.Bounds.Height / 2);
-        var screenPoint = DropZone.PointToScreen(targetPos);
-        AppHost.Get<RadialController>().ShowForFiles(screenPoint.X, screenPoint.Y, paths);
+        _pickerOpen = true;
+        try
+        {
+            var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = vm.Workspace.AddFilesText,
+                AllowMultiple = true,
+                FileTypeFilter =
+                [
+                    new FilePickerFileType("HTML · PDF · PPTX · DOCX · TXT")
+                    {
+                        Patterns = ["*.html", "*.htm", "*.xhtml", "*.pdf", "*.pptx", "*.docx", "*.txt"],
+                        MimeTypes = ["text/html", "application/xhtml+xml", "application/pdf", "text/plain",
+                            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+                        AppleUniformTypeIdentifiers = ["public.html", "com.adobe.pdf", "public.plain-text",
+                            "org.openxmlformats.presentationml.presentation", "org.openxmlformats.wordprocessingml.document"],
+                    },
+                ],
+            });
+            vm.Workspace.AddFiles(files.Select(f => f.TryGetLocalPath()).OfType<string>());
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            AppHost.Get<ILogger<HomePage>>().LogWarning(ex, "Opening the document picker failed");
+            vm.Workspace.ReportMessage(vm.Workspace.PickerFailureText);
+        }
+        finally
+        {
+            _pickerOpen = false;
+        }
     }
 
     private void OnDrop(object? sender, DragEventArgs e)
     {
         DropZone.Classes.Remove("over");
+        e.Handled = true;
+        if (DataContext is not HomePageViewModel vm)
+            return;
         var dragged = DraggedFiles.Read(e.DataTransfer, forDrop: true);
-        if (dragged.Files.Count == 0)
+        if (dragged.Web is not null)
         {
+            dragged.Web.Dispose();
             e.DragEffects = DragDropEffects.None;
+            vm.Workspace.ReportMessage(vm.Workspace.BrowserDropText);
             return;
         }
-
-        e.DragEffects = DragDropEffects.Copy;
-        var screenPoint = this.PointToScreen(e.GetPosition(this));
-        AppHost.Get<RadialController>().ShowForFiles(screenPoint.X, screenPoint.Y, dragged.Files, web: dragged.Web);
+        e.DragEffects = dragged.Files.Any(p => DocumentWorkspaceViewModel.SupportsPath(p) && File.Exists(p))
+            ? DragDropEffects.Copy : DragDropEffects.None;
+        vm.Workspace.AddFiles(dragged.Files);
     }
 }

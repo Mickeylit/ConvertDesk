@@ -60,18 +60,21 @@ public class RadialControllerTests
     }
 
     [Fact]
-    public void Folders_only_go_into_one_archive()
+    public void Only_complete_local_document_batches_reach_a_conversion()
     {
-        var folder = Directory.CreateTempSubdirectory("filee-donut-folder-").FullName;
+        var folder = Directory.CreateTempSubdirectory("convertdesk-donut-inputs-").FullName;
         try
         {
-            var file = Path.Combine(folder, "1.png");
-            var zip = new Preset { TargetFormat = "zip", Archive = { CombineIntoOne = true } };
-
-            // Issue #186: a dragged folder goes into "Compress into one archive"; other presets take only the files.
-            Assert.Equal([folder, file], RadialController.SourcesFor(zip, [folder, file]));
-            Assert.Equal([file], RadialController.SourcesFor(new Preset { TargetFormat = "jpg" }, [folder, file]));
-            Assert.Empty(RadialController.SourcesFor(new Preset { TargetFormat = "zip" }, [folder]));
+            var document = Path.Combine(folder, "notes.txt");
+            var image = Path.Combine(folder, "photo.png");
+            File.WriteAllText(document, "local document");
+            File.WriteAllText(image, "image");
+            var pdf = new Preset { TargetFormat = "pdf" };
+            Assert.Equal([document], RadialController.SourcesFor(pdf, [document]));
+            Assert.Empty(RadialController.SourcesFor(pdf, [folder, document]));
+            Assert.Empty(RadialController.SourcesFor(pdf, [image, document]));
+            Assert.Empty(RadialController.SourcesFor(pdf, [Path.Combine(folder, "missing.txt")]));
+            Assert.Empty(RadialController.SourcesFor(new Preset { TargetFormat = "zip", Archive = { CombineIntoOne = true } }, [document]));
         }
         finally
         {

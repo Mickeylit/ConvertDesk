@@ -92,7 +92,7 @@ public sealed class Preset
     public string? NameKey { get; set; }
 
     /// <summary>Id of the output format (see <see cref="Formats.FormatRegistry"/>).</summary>
-    public string TargetFormat { get; set; } = "png";
+    public string TargetFormat { get; set; } = "pdf";
 
     /// <summary>Options used when the output is a raster image.</summary>
     public ImageOptions Image { get; set; } = new();

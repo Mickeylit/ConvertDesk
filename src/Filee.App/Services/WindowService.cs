@@ -42,9 +42,6 @@ public sealed class WindowService(ILocalizer loc, IServiceProvider services, Mem
     internal ClipWindow? ClipWindow => _clipWindow;
     internal HideWindow? HideWindow => _hideWindow;
     internal ImageEditWindow? ImageEdit => _imageEdit;
-    private readonly HashSet<SpreadsheetPrintStudioWindow> _spreadsheetStudios = [];
-
-    internal IReadOnlyCollection<SpreadsheetPrintStudioWindow> SpreadsheetStudios => _spreadsheetStudios;
     private MergeOrderWindow? _mergeOrder;
     private PdfPageEditorWindow? _pdfPageEditor;
 
@@ -140,24 +137,18 @@ public sealed class WindowService(ILocalizer loc, IServiceProvider services, Mem
     public MainWindow? Main => _main;
 
     /// <summary>
-    /// Opens the window of a tool preset (crop, cut a clip, edit pictures, pixelate / blur, the spreadsheet print studio:
-    /// one per workbook, the PDF page editor) on the files. A tool this version doesn't know opens nothing.
+    /// Opens a legacy editing tool. Spreadsheet printing is outside the document converter product and stays disabled.
     /// </summary>
     public void ShowTool(IReadOnlyList<string> files, Preset preset, PixelPoint? near = null)
     {
+        if (preset.Id == "tool-sheet-studio")
+            return;
         if (preset.IsClipTool)
             ShowClipWindow(files, preset, near);
         else if (preset.IsHideTool)
             ShowHideWindow(files, preset, near);
         else if (preset.IsImageEditTool)
             ShowImageEditWindow(files, preset);
-        // Before the crop: the print studio and the PDF page tools have no Tool of their own, which reads as a crop
-        // ("Crop PDF" is one and opens the crop overlay).
-        else if (preset.Id == "tool-sheet-studio")
-        {
-            foreach (var workbook in files.Where(file => Path.GetExtension(file).Equals(".xlsx", StringComparison.OrdinalIgnoreCase)))
-                ShowSpreadsheetPrintStudio(workbook);
-        }
         else if (preset.Id == "tool-pdf-pages")
             ShowPdfPageEditor(files, preset);
         else if (preset.Id == "tool-pdf-add")
@@ -324,31 +315,6 @@ public sealed class WindowService(ILocalizer loc, IServiceProvider services, Mem
         _pdfPageEditor = win;
         win.Show();
         win.Activate();
-    }
-
-    /// <summary>Opens the non-destructive XLSX print studio. One workbook owns one window and print plan.</summary>
-    public void ShowSpreadsheetPrintStudio(string file)
-    {
-        SpreadsheetPrintStudioViewModel vm;
-        try
-        {
-            vm = ActivatorUtilities.CreateInstance<SpreadsheetPrintStudioViewModel>(services, file);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            services.GetService<ILogger<WindowService>>()?.LogWarning(ex, "Could not open spreadsheet print studio for {File}", file);
-            _ = MessageAsync(null, ex.Message);
-            return;
-        }
-        var window = new SpreadsheetPrintStudioWindow { DataContext = vm };
-        window.Closed += (_, _) =>
-        {
-            _spreadsheetStudios.Remove(window);
-            trimmer.Request();
-        };
-        _spreadsheetStudios.Add(window);
-        window.Show();
-        window.Activate();
     }
 
     /// <summary>
@@ -604,6 +570,8 @@ public sealed class WindowService(ILocalizer loc, IServiceProvider services, Mem
     /// <summary>Shows the one-time "Is Filee helping you?" card in the bottom-right corner.</summary>
     public void ShowFeedbackNotice()
     {
+        // Upstream feedback requests do not apply to this independent application.
+        if (!UpdateService.UpdatesEnabled) return;
         if (_feedbackNotice is not null)
             return;
         _feedbackNotice = new FeedbackNoticeWindow();
@@ -630,6 +598,8 @@ public sealed class WindowService(ILocalizer loc, IServiceProvider services, Mem
     /// </summary>
     public void ShowFormatRequestNotice(IReadOnlyList<string> extensions)
     {
+        // ConvertDesk deliberately supports five formats; do not send users to upstream feature requests.
+        if (!UpdateService.UpdatesEnabled) return;
         _formatRequestNotice?.Close();
         var notice = new FormatRequestNoticeWindow(extensions, loc.Format("format_request.notice_title", FormatRequest.Label(extensions)));
         PrepareWindow(notice);

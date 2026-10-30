@@ -109,7 +109,7 @@ internal static class HistoryThumbnails
     /// </summary>
     internal static Bitmap? DecodeVideo(string path, long maxPixels)
     {
-        var ffmpeg = FfmpegConverter.Locate()?.Ffmpeg;
+        var ffmpeg = FfmpegTools.Locate()?.Ffmpeg;
         if (ffmpeg is null || !File.Exists(ffmpeg))
             return null;
 

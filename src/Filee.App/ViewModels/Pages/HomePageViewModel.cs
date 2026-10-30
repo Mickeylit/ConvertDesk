@@ -1,4 +1,4 @@
-// Home: drop zone (handled in the view) and recent conversions.
+// Home: document workspace and recent conversions.
 
 using System.Collections.ObjectModel;
 using Avalonia.Media.Imaging;
@@ -204,7 +204,8 @@ public sealed partial class HomePageViewModel : ObservableObject, IDisposable
     private readonly ElevationService? _elevation;
 
     public HomePageViewModel(UserDataStore store, ILocalizer loc, IPlatformServices platform, Services.Triggers.TriggerService? triggers = null,
-        ConversionService? conversions = null, ElevationService? elevation = null)
+        ConversionService? conversions = null, ElevationService? elevation = null,
+        PresetAvailability? availability = null, ConverterCatalog? catalog = null)
     {
         _store = store;
         _loc = loc;
@@ -212,6 +213,7 @@ public sealed partial class HomePageViewModel : ObservableObject, IDisposable
         _triggers = triggers;
         _conversions = conversions;
         _elevation = elevation;
+        Workspace = new DocumentWorkspaceViewModel(loc, store, conversions, availability, catalog);
         if (triggers is not null)
             triggers.StatusChanged += OnTriggerStatusChanged;
         if (elevation is not null)
@@ -226,6 +228,7 @@ public sealed partial class HomePageViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
+        Workspace.Dispose();
         _thumbnails?.Cancel();
         _store.HistoryChanged -= OnHistoryChanged;
         if (_triggers is not null)
@@ -262,6 +265,8 @@ public sealed partial class HomePageViewModel : ObservableObject, IDisposable
     }
 
     public string DropHint { get; }
+
+    public DocumentWorkspaceViewModel Workspace { get; }
 
     /// <summary>How many conversions the page lists: the newest, or the newest that match the search.</summary>
     internal const int Shown = 40;

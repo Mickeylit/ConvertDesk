@@ -108,6 +108,7 @@ internal static class ImageReader
         }
     }
 
+
     /// <summary>Read settings per source format.</summary>
     internal static MagickReadSettings Settings(string formatId, Preset preset)
     {

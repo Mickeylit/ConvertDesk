@@ -4,8 +4,7 @@
 //   gesture detected → an invisible window waits at the cursor (not activated) → DragEnter brings the file list →
 //   the donut pops out → drop on a slice converts / drop in the hole or release elsewhere closes. Without files
 //   (text, a rubber-band selection) nothing ever shows.
-// Files from a web browser (a picture, a link to a PDF) stand as placeholder paths named like the files will be, so the
-// donut shows their slices at once; they are saved when the conversion starts (WebDrop, ConversionService).
+// Only existing local documents are accepted; browser links and virtual transfers are rejected.
 // Click mode (keyboard shortcut, context menu, drop zone):
 //   files are known up front → donut appears activated → click a slice to convert, right-click to edit,
 //   Esc / click outside closes.
@@ -26,7 +25,6 @@ using Filee.App.Views;
 using Filee.Core.Conversion;
 using Filee.Core.Platform;
 using Filee.Core.Presets;
-using Filee.Core.Profiles;
 using Filee.Core.Settings;
 using Filee.Core.Web;
 using Microsoft.Extensions.Logging;
@@ -62,9 +60,6 @@ public sealed class RadialController(
 
     /// <summary>A gesture over something that isn't a file drag (a rubber-band selection) is common: a line now and then.</summary>
     private static readonly LogThrottle Throttle = new(TimeSpan.FromMinutes(1));
-    private bool _converted;   // a conversion started from the files on the donut now
-    private readonly HashSet<string> _formatRequestsOffered = new(StringComparer.OrdinalIgnoreCase);
-    private WebDrop? _web;      // the browser drop the click-mode donut's files stand for, until a conversion takes it
 
     /// <summary>
     /// How long a drag that never brought files may keep the invisible window up, in case the button release is
@@ -85,13 +80,11 @@ public sealed class RadialController(
     {
         ReleaseProgressToToast();
         _grace.Cancel();
-        ReplaceWeb(null);
         var window = EnsureWindow();
         // A ring from an earlier conversion (finished or handed to the toast) must not keep this gesture's window up.
         window.DonutControl.LeaveProgressMode();
         _dropped = false;
         _dragReachedDonut = false;
-        _converted = false;
         viewModel.ResetForDrag();
         window.DonutControl.AllowContextEdit = false;
         PlaceAndShow(window, x, y, activate: false);
@@ -108,27 +101,25 @@ public sealed class RadialController(
     /// <summary>
     /// Opens the donut for known files (click mode). Shortcuts among them stand for the files they point to.
     /// <paramref name="forAnotherProcess"/>: the files came from a later launch or the Services menu, so on macOS the
-    /// donut may lose focus once while Filee becomes the active app. <paramref name="web"/>: the files are placeholders
-    /// of this browser drop (the drop zone), which the donut now owns.
+    /// donut may lose focus once while the app becomes active. Legacy browser drops are rejected and disposed.
     /// </summary>
     public void ShowForFiles(int x, int y, IReadOnlyList<string> files, bool forAnotherProcess = false, WebDrop? web = null)
     {
-        if (web is null)
-            files = platform.ResolveShortcuts(files);
-        if (files.Count == 0)
+        if (web is not null)
         {
-            web?.Dispose();
+            web.Dispose();
             return;
         }
+        files = platform.ResolveShortcuts(files);
+        if (files.Count == 0 || files.Any(WebDrop.IsPlaceholder))
+            return;
         ReleaseProgressToToast();
-        ReplaceWeb(web);
         if (forAnotherProcess && OperatingSystem.IsMacOS())
             _grace.Start();
         else
             _grace.Cancel();
         var window = EnsureWindow();
         _dropped = false;
-        _converted = false;
         viewModel.Load(files, clickMode: true);
         viewModel.FitToThisDonut();
         window.DonutControl.AllowContextEdit = true;
@@ -182,7 +173,6 @@ public sealed class RadialController(
         _visible = false;
         WatchFlipKey();
         _grace.Cancel();
-        ReplaceWeb(null);
         var window = _window;
         // A group about to open (its dwell timer running) must not open on a closing donut.
         window.DonutControl.CollapseGroup();
@@ -194,22 +184,6 @@ public sealed class RadialController(
             });
         else
             window.Hide();
-        OfferFormatRequest();
-    }
-
-    /// <summary>
-    /// The donut closed on files Filee can't read at all (".ncm"): offer to request the format, once per extension
-    /// while Filee runs. Files it reads, even mixed with unknown ones, get a conversion and the toast instead.
-    /// </summary>
-    private void OfferFormatRequest()
-    {
-        if (_converted || viewModel.Files.Count == 0 || ProfileSelector.DetectFormats(viewModel.Files).Count > 0)
-            return;
-        var extensions = FormatRequest.UnknownExtensions(viewModel.Files).Where(_formatRequestsOffered.Add).ToList();
-        if (extensions.Count == 0)
-            return;
-        log.LogInformation("Donut closed on files Filee can't read: {Extensions}", FormatRequest.Label(extensions));
-        windows.ShowFormatRequestNotice(extensions);
     }
 
     private RadialWindow EnsureWindow()
@@ -241,7 +215,7 @@ public sealed class RadialController(
         };
         window.FilesEntered += files =>
         {
-            if (viewModel.IsClickMode || SameFiles(files, viewModel.Files) || SameWebFiles(files, viewModel.Files))
+            if (viewModel.IsClickMode || files.Any(WebDrop.IsPlaceholder) || SameFiles(files, viewModel.Files))
                 return;
             viewModel.Load(files, clickMode: false);
             donut.PlayOpenAnimation();
@@ -296,8 +270,8 @@ public sealed class RadialController(
             if (FlipsFromHook)
                 donut.FlipFromWheel(Environment.TickCount64);
         };
-        donut.SegmentInvoked += (_, index) => Convert(index, -1, viewModel.Files, TakeWeb());
-        donut.SubSegmentInvoked += (_, hit) => Convert(hit.Group, hit.Sub, viewModel.Files, TakeWeb());
+        donut.SegmentInvoked += (_, index) => Convert(index, -1, viewModel.Files);
+        donut.SubSegmentInvoked += (_, hit) => Convert(hit.Group, hit.Sub, viewModel.Files);
         donut.CenterInvoked += (_, _) => Close();
         donut.SegmentContextRequested += async (_, index) => await EditPresetAsync(index);
         donut.SubSegmentContextRequested += async (_, hit) => await EditPresetAsync(hit.Group, hit.Sub);
@@ -314,107 +288,57 @@ public sealed class RadialController(
 
     /// <summary>
     /// Converts with slice <paramref name="index"/>, or with slice <paramref name="sub"/> of that group's ring.
-    /// <paramref name="web"/>: the browser drop the files stand for, handed to the conversion (or disposed).
+    /// Legacy browser drops are disposed without conversion.
     /// </summary>
     private void Convert(int index, int sub, IReadOnlyList<string> files, WebDrop? web = null)
     {
-        // Placeholders whose drop is gone (the drag listed files it didn't hand over in the end) can't be converted.
-        var orphaned = web is null && files.Any(WebDrop.IsPlaceholder);
-        if (viewModel.PresetAt(index, sub) is not { } preset || SourcesFor(preset, files) is not { Count: > 0 } sources || orphaned)
+        if (web is not null || viewModel.PresetAt(index, sub) is not { } preset
+            || SourcesFor(preset, files) is not { Count: > 0 } sources)
         {
             web?.Dispose();
             Close();
             return;
         }
 
-        if (preset.IsTool)
-        {
-            var near = _window?.Position;
-            Close(animate: false);
-            if (web is null)
-                windows.ShowTool(sources, preset, near);
-            else
-                _ = ShowToolForBrowserFilesAsync(web, preset, near);
-            return;
-        }
-
-        // Merged PDFs, joined clips, slideshows and merged pictures follow the order the user picks.
-        if ((preset.TargetFormat == "pdf" && preset.Pdf.MergeIntoSingle || preset.JoinsIntoOneMedia || preset.JoinsImages) && sources.Count > 1)
+        // A document PDF merge still lets the user choose the page order.
+        if (preset.TargetFormat == "pdf" && preset.Pdf.MergeIntoSingle && sources.Count > 1)
         {
             Close(animate: false);
-            _ = MergeInOrderAsync(sources, preset.Clone(), web);
+            _ = MergeInOrderAsync(sources, preset.Clone());
             return;
         }
 
         // "Ask every time" (#521): the save dialog first; the toast shows the job, the donut has closed for the dialog.
-        // shortcut: files from a browser aren't asked about, they save into the download folder as "next to the source".
-        if (preset.Output.AskEveryTime && web is null)
+        if (preset.Output.AskEveryTime)
         {
             Close(animate: false);
             _ = AskThenConvertAsync(sources, preset);
             return;
         }
 
-        log.LogInformation("Converting {Count} file(s) with preset {Preset}{Web}", sources.Count, preset.Id,
-            web is null ? "" : " (from a browser)");
-        var job = conversions.Start(sources, preset, showInToast: false, web);
+        log.LogInformation("Converting {Count} file(s) with preset {Preset}", sources.Count, preset.Id);
+        var job = conversions.Start(sources, preset, showInToast: false);
         if (job is null || _window is null)
         {
             Close();
             return;
         }
-        _converted = true;
         ShowProgress(job);
     }
 
-    private async Task MergeInOrderAsync(IReadOnlyList<string> files, Preset preset, WebDrop? web)
+    private async Task MergeInOrderAsync(IReadOnlyList<string> files, Preset preset)
     {
         try
         {
             var ordered = await windows.ChooseMergeOrderAsync(files, preset);
-            if (ordered is not null && preset.JoinsImages)
-                RememberMergeLayout(preset);
-            if (ordered is not null && preset.Output.AskEveryTime && web is null)
+            if (ordered is not null && preset.Output.AskEveryTime)
                 await AskThenConvertAsync(ordered, preset);
             else if (ordered is not null)
-            {
-                conversions.Start(ordered, preset, web: web);
-                web = null; // the conversion owns the browser drop now
-            }
+                conversions.Start(ordered, preset);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            log.LogError(ex, "Could not start the ordered merge");
-        }
-        finally
-        {
-            web?.Dispose();
-        }
-    }
-
-    /// <summary>
-    /// "Merge images": the layout chosen in the merge order window (<paramref name="chosen"/>, a copy of the preset)
-    /// goes into the preset as saved, so the window opens with it next time.
-    /// </summary>
-    private void RememberMergeLayout(Preset chosen)
-    {
-        if (store.FindPreset(chosen.Id) is not { JoinsImages: true } saved)
-            return;
-        var image = saved.Image;
-        if (image.JoinDirection == chosen.Image.JoinDirection && image.JoinFit == chosen.Image.JoinFit
-            && image.JoinGap == chosen.Image.JoinGap && image.JoinBackground == chosen.Image.JoinBackground)
-            return;
-        image.JoinDirection = chosen.Image.JoinDirection;
-        image.JoinFit = chosen.Image.JoinFit;
-        image.JoinGap = chosen.Image.JoinGap;
-        image.JoinBackground = chosen.Image.JoinBackground;
-        try
-        {
-            store.SaveLibrary();
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            log.LogWarning(ex, "Could not remember the layout of merged pictures");
+            log.LogError(ex, "Could not start the ordered document merge");
         }
     }
 
@@ -422,7 +346,7 @@ public sealed class RadialController(
     {
         try
         {
-            // Asked as it will run (a ZIP from Settings › General is a .zip), for one file or a folder as the job makes them.
+            // Ask for the effective document output location before starting the job.
             var running = store.Settings.WithDefaultOutput(preset);
             if (await windows.AskSaveLocationAsync(sources, running, AskedLocation.MakesOneResult(running, sources.Count)) is { } asked)
             {
@@ -436,21 +360,11 @@ public sealed class RadialController(
         }
     }
 
-    /// <summary>A tool (crop, clip) on files from a browser: they are saved first, then it opens on them.</summary>
-    private async Task ShowToolForBrowserFilesAsync(WebDrop web, Filee.Core.Presets.Preset preset, PixelPoint? near)
-    {
-        var files = await conversions.SaveBrowserFilesAsync(web, (placeholder, ex) =>
-            log.LogWarning(ex, "Saving {File} from a browser for {Preset} failed", Path.GetFileName(placeholder), preset.Id));
-        if (files.Count > 0)
-            windows.ShowTool(files, preset, near);
-    }
-
-    /// <summary>
-    /// What <paramref name="preset"/> converts of <paramref name="files"/>: folders only go into "Compress into one
-    /// archive"; any other preset converts the files beside them (issue #186).
-    /// </summary>
+    /// <summary>Every source must be an existing supported document; a mixed batch is never silently shortened.</summary>
     internal static IReadOnlyList<string> SourcesFor(Preset preset, IReadOnlyList<string> files) =>
-        preset.PacksIntoOneArchive ? files : [.. files.Where(path => !Directory.Exists(path))];
+        !preset.IsTool && !preset.IsGroup && !preset.Output.ZipResult
+        && Filee.Core.Formats.ProductFormatPolicy.IsAllowedFormatId(preset.TargetFormat)
+        && ConversionService.AreSupportedLocalFiles(files) ? files : [];
 
     // ───────── Progress ring ─────────
 
@@ -616,24 +530,4 @@ public sealed class RadialController(
     private static bool SameFiles(IReadOnlyList<string> a, IReadOnlyList<string> b) =>
         a.Count == b.Count && a.SequenceEqual(b, FileSystemPaths.Comparer);
 
-    /// <summary>The same browser files dragged in again: each entry makes new placeholders, with the same names.</summary>
-    private static bool SameWebFiles(IReadOnlyList<string> a, IReadOnlyList<string> b) =>
-        a.Count == b.Count && a.All(WebDrop.IsPlaceholder) && b.All(WebDrop.IsPlaceholder)
-        && a.Select(Path.GetFileName).SequenceEqual(b.Select(Path.GetFileName), StringComparer.Ordinal);
-
-    /// <summary>Hands the click-mode donut's browser drop to a conversion.</summary>
-    private WebDrop? TakeWeb()
-    {
-        var web = _web;
-        _web = null;
-        return web;
-    }
-
-    /// <summary>The click-mode donut now stands for <paramref name="web"/>'s files (or local ones): the old drop is done.</summary>
-    private void ReplaceWeb(WebDrop? web)
-    {
-        if (!ReferenceEquals(_web, web))
-            _web?.Dispose();
-        _web = web;
-    }
 }

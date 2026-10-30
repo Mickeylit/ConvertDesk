@@ -6,6 +6,7 @@ using System.Collections.ObjectModel;
 using Avalonia.Threading;
 using Filee.App.ViewModels;
 using Filee.Core.Conversion;
+using Filee.Core.Formats;
 using Filee.Core.History;
 using Filee.Core.Localization;
 using Filee.Core.Platform;
@@ -15,32 +16,29 @@ using Filee.Core.Web;
 
 namespace Filee.App.Services;
 
-public sealed class ConversionService
+public sealed class ConversionService : IDisposable
 {
     private static readonly TimeSpan KeepSuccess = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan KeepErrors = TimeSpan.FromSeconds(15);
-
-    /// <summary>After this many fully successful conversions Filee asks once for a star or feedback.</summary>
-    public const int FeedbackAfterConversions = 3;
 
     private readonly JobQueue _queue;
     private readonly UserDataStore _store;
     private readonly ILocalizer _loc;
     private readonly IPlatformServices _platform;
-    private readonly WebDownloader _downloader;
+    private readonly object _lifecycleGate = new();
+    private volatile bool _disposed;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, JobViewModel> _byId = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TaskCompletionSource<ConversionJob>> _waiting = new();
 
     /// <summary>Jobs that came from a watch folder: job id → rule id (for the history and for retrying).</summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _watchJobs = new();
 
-    public ConversionService(JobQueue queue, UserDataStore store, ILocalizer loc, IPlatformServices platform, WebDownloader downloader)
+    public ConversionService(JobQueue queue, UserDataStore store, ILocalizer loc, IPlatformServices platform)
     {
         _queue = queue;
         _store = store;
         _loc = loc;
         _platform = platform;
-        _downloader = downloader;
         _queue.JobUpdated += OnJobUpdated;
         _queue.JobFinished += OnJobFinished;
     }
@@ -51,38 +49,24 @@ public sealed class ConversionService
     /// <summary>The subset shown in the toast window. UI thread only.</summary>
     public ObservableCollection<JobViewModel> ToastJobs { get; } = [];
 
-    /// <summary>
-    /// Raised once (UI thread) when the user has had a few successful conversions and the toast has gone: time to
-    /// ask for a GitHub star or feedback.
-    /// </summary>
-    public event EventHandler? FeedbackDue;
-
     /// <summary>Starts converting files with a preset.</summary>
     /// <param name="files">Source files.</param>
     /// <param name="preset">Preset to apply.</param>
     /// <param name="showInToast">False when another view (the donut's progress ring) displays the job first.</param>
-    /// <param name="web">
-    /// The browser drop <paramref name="files"/> stand for: the job saves them first, into the folder Settings ›
-    /// General names for files from a browser. The job owns it from now on (disposed here when nothing starts).
-    /// </param>
+    /// <param name="web">Legacy browser drops are rejected and disposed without fetching anything.</param>
     /// <returns>The job's view model, or null when there was nothing to convert.</returns>
     public JobViewModel? Start(IReadOnlyList<string> files, Preset preset, bool showInToast = true, WebDrop? web = null)
     {
-        if (files.Count == 0 || preset.IsGroup || preset.IsTool)
+        if (_disposed || web is not null || !AreSupportedLocalFiles(files) || !IsSupportedPreset(preset))
         {
             web?.Dispose();
             return null;
         }
         // A preset on "Default" saves where Settings > General says (read now, so a changed default applies at once).
         preset = _store.Settings.WithDefaultOutput(preset);
-        WebDropFetcher? fetcher = null;
-        if (web is not null)
-        {
-            fetcher = web.CreateFetcher(BrowserDropOptions(), _downloader);
-            // "Next to the source" is the download folder, also when the original is only kept until converted.
-            preset = fetcher.Apply(preset);
-        }
-        var job = _queue.Enqueue(files, preset, _loc.DisplayName(preset), fetcher);
+        if (!IsSupportedPreset(preset))
+            return null;
+        var job = _queue.Enqueue(files, preset, _loc.DisplayName(preset));
         var vm = new JobViewModel(job, _loc, _platform, Remove, RetryFailed);
         _byId[job.Id] = vm;
         Jobs.Insert(0, vm);
@@ -97,6 +81,9 @@ public sealed class ConversionService
     /// </summary>
     public Func<string, IReadOnlyList<string>, Preset, Task>? WatchRetry { get; set; }
 
+    // Tests can stop at the UI-start/background-wait boundary to exercise shutdown deterministically.
+    internal Action? BeforeWaitRegistration { get; set; }
+
     /// <summary>
     /// Converts files that failed again with the preset their job ran with (shown in the toast). Files that are no
     /// longer there are left out. Files of a watch folder go through <see cref="WatchRetry"/>.
@@ -104,8 +91,8 @@ public sealed class ConversionService
     /// <returns>The new job, or null when none of the files is left or the watch folder converts them.</returns>
     public JobViewModel? Retry(IEnumerable<string> sources, Preset preset, string? watchRuleId = null)
     {
-        var files = sources.Where(Exists).Distinct(StringComparer.Ordinal).ToList();
-        if (files.Count == 0)
+        var files = sources.Where(Exists).Distinct(FileSystemPaths.Comparer).ToList();
+        if (_disposed || !AreSupportedLocalFiles(files) || !IsSupportedPreset(preset))
             return null;
         // History keeps no PDF password: it comes from the preset when that still has one (else the job refuses).
         if (preset.Pdf.PasswordLeftOut && _store.FindPreset(preset.Id)?.Pdf.Password is { Length: > 0 } password)
@@ -122,43 +109,14 @@ public sealed class ConversionService
         return Start(files, preset);
     }
 
-    /// <summary>
-    /// Saves a browser drop's files for a tool (the crop overlay), which needs them on disk before anything else
-    /// happens: always into the download folder, as the tool shows and keeps working on the original. Files that can't
-    /// be saved are left out (<paramref name="failed"/> hears why). The drop is done afterwards.
-    /// </summary>
-    public async Task<IReadOnlyList<string>> SaveBrowserFilesAsync(WebDrop web, Action<string, Exception> failed)
-    {
-        try
-        {
-            var fetcher = web.CreateFetcher(BrowserDropOptions() with { SaveOnlyConverted = false }, _downloader);
-            var saved = new List<string>();
-            foreach (var placeholder in web.Placeholders)
-            {
-                try
-                {
-                    saved.Add(await fetcher.FetchAsync(placeholder, new Progress<TransferProgress>(), CancellationToken.None));
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    failed(placeholder, ex);
-                }
-            }
-            return saved;
-        }
-        finally
-        {
-            web.Dispose();
-        }
-    }
+    /// <summary>Checks the complete batch before any conversion or output allocation can begin.</summary>
+    internal static bool AreSupportedLocalFiles(IReadOnlyList<string> files) =>
+        files.Count > 0 && files.All(path => ProductFormatPolicy.IsAllowedPath(path)
+            && !WebDrop.IsPlaceholder(path) && File.Exists(path));
 
-    /// <summary>Where files dragged from a browser are saved, as Settings › General says now.</summary>
-    public WebDropOptions BrowserDropOptions()
-    {
-        var settings = _store.Settings.BrowserDrops;
-        var folder = string.IsNullOrWhiteSpace(settings.Folder) ? _platform.DownloadsFolder : settings.Folder.Trim();
-        return new WebDropOptions(folder, settings.SaveOnlyConverted);
-    }
+    private static bool IsSupportedPreset(Preset preset) =>
+        !preset.IsGroup && !preset.IsTool && !preset.Output.ZipResult
+        && ProductFormatPolicy.IsAllowedFormatId(preset.TargetFormat);
 
     /// <summary>True when a source file (or folder) is still where it was.</summary>
     public static bool Exists(string path) => File.Exists(path) || Directory.Exists(path);
@@ -187,13 +145,27 @@ public sealed class ConversionService
         });
         if (vm is null)
             return null;
-        var finished = _waiting.GetOrAdd(vm.Job.Id, _ => new TaskCompletionSource<ConversionJob>(TaskCreationOptions.RunContinuationsAsynchronously));
+        BeforeWaitRegistration?.Invoke();
+        TaskCompletionSource<ConversionJob> finished;
+        lock (_lifecycleGate)
+        {
+            // Dispose may run after the UI started the job but before this continuation resumes.
+            // Register under the same lock that closes the service so no waiter can miss cancellation.
+            if (_disposed)
+                throw new OperationCanceledException("The conversion service was disposed.");
+            finished = _waiting.GetOrAdd(vm.Job.Id, _ => new TaskCompletionSource<ConversionJob>(TaskCreationOptions.RunContinuationsAsynchronously));
+        }
         // The job may have finished before the wait was registered.
         if (vm.Job.State is not (JobState.Queued or JobState.Running))
             finished.TrySetResult(vm.Job);
-        var job = await finished.Task;
-        _waiting.TryRemove(job.Id, out _);
-        return job;
+        try
+        {
+            return await finished.Task;
+        }
+        finally
+        {
+            _waiting.TryRemove(vm.Job.Id, out _);
+        }
     }
 
     /// <summary>Moves a job into the toast window (no-op if it is already there or gone).</summary>
@@ -205,6 +177,8 @@ public sealed class ConversionService
 
     private void OnJobUpdated(object? sender, ConversionJob job)
     {
+        if (_disposed)
+            return;
         // Called from worker threads, possibly many times per second: coalesce into one UI update.
         if (_byId.TryGetValue(job.Id, out var vm) && vm.TryMarkPending())
             Dispatcher.UIThread.Post(vm.Refresh, DispatcherPriority.Background);
@@ -212,6 +186,8 @@ public sealed class ConversionService
 
     private void OnJobFinished(object? sender, ConversionJob job)
     {
+        if (_disposed)
+            return;
         var entry = HistoryEntry.From(job);
         entry.WatchRuleId = _watchJobs.GetValueOrDefault(job.Id);
         _store.AddHistory(entry);
@@ -219,26 +195,28 @@ public sealed class ConversionService
             waiting.TrySetResult(job);
         Dispatcher.UIThread.Post(() =>
         {
-            if (!_byId.TryGetValue(job.Id, out var vm))
+            if (_disposed || !_byId.TryGetValue(job.Id, out var vm))
                 return;
             vm.Refresh();
             var keep = vm.HasErrors ? KeepErrors : KeepSuccess;
             DispatcherTimer.RunOnce(() => Remove(vm), keep);
-            if (!vm.HasErrors && CountSuccess(job))
-                DispatcherTimer.RunOnce(() => FeedbackDue?.Invoke(this, EventArgs.Empty), keep + TimeSpan.FromSeconds(1));
         });
     }
 
-    /// <summary>Counts a fully successful conversion; true when the feedback card is due now (only once).</summary>
-    private bool CountSuccess(ConversionJob job)
+    public void Dispose()
     {
-        var settings = _store.Settings;
-        if (settings.FeedbackPromptShown || job.Files.Count == 0 || job.Files.Any(f => f.State != FileState.Done))
-            return false;
-        settings.SuccessfulConversions++;
-        settings.FeedbackPromptShown = settings.SuccessfulConversions >= FeedbackAfterConversions;
-        _store.SaveSettings();
-        return settings.FeedbackPromptShown;
+        lock (_lifecycleGate)
+        {
+            if (_disposed)
+                return;
+            _disposed = true;
+            foreach (var waiting in _waiting.Values)
+                waiting.TrySetCanceled();
+            _waiting.Clear();
+        }
+        _queue.JobUpdated -= OnJobUpdated;
+        _queue.JobFinished -= OnJobFinished;
+        WatchRetry = null;
     }
 
     private void Remove(JobViewModel vm)

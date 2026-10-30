@@ -36,7 +36,7 @@ public class MainWindowReleaseTests
         Pump();
         var second = windows.Main!;
         Assert.True(second.IsVisible);
-        Assert.Equal("watch", ((MainWindowViewModel)second.DataContext!).SelectedItem.Key);
+        Assert.Equal("general", ((MainWindowViewModel)second.DataContext!).SelectedItem.Key);
         Assert.Equal(new Size(900, 640), second.ClientSize);
         Assert.Equal(new PixelPoint(140, 90), second.Position);
 
@@ -68,7 +68,7 @@ public class MainWindowReleaseTests
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static (WeakReference<MainWindow>, WeakReference<MainWindowViewModel>, WeakReference<object>) OpenMoveAndClose(WindowService windows)
     {
-        windows.ShowMain("watch");
+        windows.ShowMain("general");
         Pump();
         var main = windows.Main!;
         main.Position = new PixelPoint(140, 90);

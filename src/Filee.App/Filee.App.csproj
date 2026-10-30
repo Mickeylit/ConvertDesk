@@ -7,9 +7,10 @@
     <AssemblyName>Filee</AssemblyName>
     <RootNamespace>Filee.App</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>Assets\Icons\filee.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\Icons\convertdesk.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <DefineConstants Condition="'$(ConvertDeskDocumentsOnly)' == 'true'">$(DefineConstants);CONVERTDESK_DOCUMENTS_ONLY</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -47,8 +48,11 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <!-- Retain upstream source/history, but do not ship its release galleries or sponsor promotion. -->
+    <AvaloniaResource Remove="Assets\WhatsNew\**;Assets\Sponsors\**" Condition="'$(ConvertDeskDocumentsOnly)' == 'true'" />
     <!-- Shown on the About page. -->
     <AvaloniaResource Include="..\..\THIRD-PARTY-NOTICES.md" Link="Assets\THIRD-PARTY-NOTICES.md" />
+    <AvaloniaResource Include="..\..\LICENSE" Link="Assets\LICENSE" />
   </ItemGroup>
 
   <ItemGroup>

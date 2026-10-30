@@ -93,6 +93,7 @@ public sealed partial class RadialViewModel(UserDataStore store, ILocalizer loc,
     private IReadOnlyList<FileFormat> _formats = [];
     private Face? _back;
     private int _loads;
+    private string? _sourceRestriction;
 
     /// <summary>The back face is showing (after a flip).</summary>
     public bool IsBackFace { get; private set; }
@@ -128,6 +129,7 @@ public sealed partial class RadialViewModel(UserDataStore store, ILocalizer loc,
     {
         IsClickMode = false;
         Files = [];
+        _sourceRestriction = null;
         ApplyAppearance();
         ReserveSubRing = store.Profiles.Any(profile => HasGroups(profile.PresetIds.Concat(profile.BackPresetIds ?? [])));
         _loads++;
@@ -154,6 +156,11 @@ public sealed partial class RadialViewModel(UserDataStore store, ILocalizer loc,
         // A Shapefile selected with its .dbf, .shx, ... picks the donut of the .shp, not the one for unknown files, and
         // counts as one file.
         var counted = CompanionFiles.WithoutCompanions(files);
+        // Check actual extensions before FormatRegistry resolves aliases such as .py to TXT.
+        // A mixed drop is blocked as a whole so no file silently disappears from the batch.
+        _sourceRestriction = files.Any(path => !ProductFormatPolicy.IsAllowedPath(path))
+            ? $"{loc["error.unsupported_source"]} (HTML, PDF, PPTX, DOCX, TXT)"
+            : null;
         var profile = ProfileSelector.Select(store.Profiles, counted);
         var formats = ProfileSelector.DetectFormats(counted);
         // Both faces follow the same rule: a slice that can't convert these files is greyed out and says why.
@@ -176,10 +183,11 @@ public sealed partial class RadialViewModel(UserDataStore store, ILocalizer loc,
                 }, DispatcherPriority.Background);
         }
 
-        CenterTitle = formats.Count == 1
+        CenterTitle = _sourceRestriction is not null ? loc["error.unsupported_source"]
+            : formats.Count == 1
             ? loc.Format("donut.files_same", counted.Count, formats[0].DisplayName)
             : loc.Format("donut.files_mixed", counted.Count);
-        CenterSubtitle = clickMode ? loc["donut.close_hint"] : null;
+        CenterSubtitle = _sourceRestriction ?? (clickMode ? loc["donut.close_hint"] : null);
     }
 
     /// <summary>
@@ -236,7 +244,7 @@ public sealed partial class RadialViewModel(UserDataStore store, ILocalizer loc,
 
         DonutItem ItemOf(Preset p, bool caption = true)
         {
-            var reason = availability.Check(p, formats);
+            var reason = _sourceRestriction ?? availability.Check(p, formats);
             return new DonutItem
             {
                 Id = p.Id,
@@ -289,7 +297,7 @@ public sealed partial class RadialViewModel(UserDataStore store, ILocalizer loc,
                 ? loc.Format(IsClickMode ? "donut.click_to" : "donut.drop_to", Items[index].Label)
                 : Items[index].DisabledReason;
         else
-            CenterSubtitle = IsClickMode ? loc["donut.close_hint"] : null;
+            CenterSubtitle = _sourceRestriction ?? (IsClickMode ? loc["donut.close_hint"] : null);
     }
 
     /// <summary>

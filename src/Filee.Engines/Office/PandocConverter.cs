@@ -13,6 +13,8 @@ using Filee.Core.Presets;
 using Filee.Engines.Infrastructure;
 using Filee.Engines.Magick;
 using ImageMagick;
+using System.Globalization;
+using System.Text;
 
 namespace Filee.Engines.Office;
 
@@ -71,7 +73,7 @@ public sealed class PandocConverter : IConverter
     internal static readonly string[] Markup = ["rst", "tex", "org", "adoc", "typ", "mediawiki", "dbk", "ipynb", "textile", "man", "opml"];
 
     /// <summary>Sources of Pandoc's PowerPoint writer (a slide per heading): Markdown and the lightweight markups.</summary>
-    internal static readonly string[] Slides = ["md", "rst", "org", "adoc", "typ", "mediawiki", "textile", "ipynb"];
+    internal static readonly string[] Slides = ["md", "rst", "org", "adoc", "typ", "mediawiki", "textile", "ipynb", "html", "docx", "txt"];
 
     /// <summary>Cost of the slide edges, see <see cref="Edges"/>.</summary>
     private const int SlidesCost = 20;
@@ -125,8 +127,18 @@ public sealed class PandocConverter : IConverter
 
         progress?.Report(0.1);
         var input = Path.GetFullPath(step.InputPath);
+        var reader = step.From;
+        if (step.From == "txt")
+        {
+            // Plain text has no headings for Pandoc to use as slide boundaries. Prepare bounded pages explicitly;
+            // escaping before the HTML reader keeps Markdown, tags, indentation and blank lines literal.
+            var text = Filee.Engines.Hwp.Hwpx.DocumentReaders.DecodeText(await File.ReadAllBytesAsync(input, cancellationToken));
+            input = Path.Combine(step.WorkDirectory, $"text-slides-{Guid.NewGuid():N}.html");
+            await File.WriteAllTextAsync(input, PlainTextSlidesHtml(text), cancellationToken);
+            reader = "html";
+        }
         var outputFolder = Path.GetDirectoryName(Path.GetFullPath(output))!;
-        List<string> args = [input, "-f", Readers[step.From], "-t", Writers[step.To], "-o", output];
+        List<string> args = [input, "-f", Readers[reader], "-t", Writers[step.To], "-o", output];
         if (Standalone.Contains(step.To))
             args.Add("--standalone");
         if (step.To == "md")
@@ -153,6 +165,86 @@ public sealed class PandocConverter : IConverter
             MetafilesToPng(output, Path.Combine(outputFolder, media), step.Preset);
         progress?.Report(1);
         return [output];
+    }
+
+    // Pandoc's standard title/content slide has about 9 × 3.7 inches of body space at 24 pt. Keep a generous
+    // margin for font substitution: 44 half-width columns and 8 explicit lines, including blank lines, per slide.
+    internal const int PlainTextSlideColumns = 44;
+    internal const int PlainTextSlideLines = 8;
+
+    /// <summary>
+    /// Creates safe, editable text slides without treating the input as markup. Horizontal rules are explicit
+    /// Pandoc slide breaks. Preformatted blocks preserve empty lines and spacing; an empty span before the text
+    /// prevents HTML readers from stripping the first newline immediately after a pre tag.
+    /// </summary>
+    internal static string PlainTextSlidesHtml(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\t", "    ")
+            .Split('\n').SelectMany(WrapPlainTextLine).ToList();
+        var html = new StringBuilder("<!doctype html><html><head><meta charset=\"utf-8\"></head><body>");
+        for (var start = 0; start < lines.Count;)
+        {
+            var end = Math.Min(start + PlainTextSlideLines, lines.Count);
+            // Prefer a paragraph boundary near the end of a full page. Very long paragraphs still split at the
+            // fixed capacity, and no separator is discarded: joining page text restores all original blank lines.
+            if (end < lines.Count)
+                for (var i = end - 1; i >= start + PlainTextSlideLines / 2; i--)
+                    if (string.IsNullOrWhiteSpace(lines[i]))
+                    {
+                        end = i + 1;
+                        break;
+                    }
+            if (start > 0)
+                html.Append("<hr>");
+            var page = string.Join("\n", lines.GetRange(start, end - start));
+            html.Append("<pre><span></span>")
+                .Append(System.Net.WebUtility.HtmlEncode(page).Replace("\n", "&#10;"))
+                .Append("</pre>");
+            start = end;
+        }
+        return html.Append("</body></html>").ToString();
+    }
+
+    private static IEnumerable<string> WrapPlainTextLine(string line)
+    {
+        if (line.Length == 0)
+        {
+            yield return "";
+            yield break;
+        }
+
+        // Unicode text elements keep combining accents, surrogate pairs and joined emoji together at boundaries.
+        var offsets = StringInfo.ParseCombiningCharacters(line);
+        for (var start = 0; start < offsets.Length;)
+        {
+            var end = start;
+            var width = 0;
+            var lastSpace = -1;
+            while (end < offsets.Length)
+            {
+                var nextWidth = PlainTextElementColumns(line, offsets[end]);
+                if (width + nextWidth > PlainTextSlideColumns && end > start)
+                    break;
+                width += nextWidth;
+                if (line[offsets[end]] == ' ' && width >= PlainTextSlideColumns / 2)
+                    lastSpace = end;
+                end++;
+            }
+            // Keep ordinary words intact when there is a nearby space, including that space in the result.
+            if (end < offsets.Length && lastSpace >= start)
+                end = lastSpace + 1;
+            var finish = end < offsets.Length ? offsets[end] : line.Length;
+            yield return line[offsets[start]..finish];
+            start = end;
+        }
+    }
+
+    private static int PlainTextElementColumns(string text, int offset)
+    {
+        var rune = Rune.GetRuneAt(text, offset);
+        // CJK, emoji and other non-ASCII glyphs get a full em. Latin capitals and wide symbols do too. This is a
+        // conservative layout estimate, not a claim about a particular installed font's metrics.
+        return rune.Value > 0x7f || rune.Value is >= 'A' and <= 'Z' || "mw@#%&~".Contains((char)rune.Value) ? 2 : 1;
     }
 
     /// <summary>

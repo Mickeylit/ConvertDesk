@@ -26,7 +26,7 @@ public static class ExtensionInput
             return null;
         if (!value.All(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '+' or '.'))
             return null;
-        if (value.Contains('.') && FormatRegistry.FindByExtension(value) is null)
+        if (!ProductFormatPolicy.IsAllowedExtension(value))
             return null;
         return value;
     }
@@ -44,8 +44,7 @@ public static class ExtensionInput
             return [];
         var taken = existing.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        var candidates = FormatRegistry.Known
-            .Where(f => f.Id != FormatRegistry.Folder)
+        var candidates = ProductFormatPolicy.Formats
             .SelectMany((format, formatIndex) => format.Extensions
                 .Where(e => e.Length > 0 && !taken.Contains(e))
                 .Select((extension, i) => (Extension: extension, Format: format, Order: formatIndex * 100 + i)));

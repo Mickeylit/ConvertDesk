@@ -5,6 +5,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>Filee.Engines</RootNamespace>
+    <!-- Opt-in only: ordinary upstream development and its full test suite retain every engine. -->
+    <ConvertDeskDocumentsOnly Condition="'$(ConvertDeskDocumentsOnly)' == ''">false</ConvertDeskDocumentsOnly>
+    <DefineConstants Condition="'$(ConvertDeskDocumentsOnly)' == 'true'">$(DefineConstants);CONVERTDESK_DOCUMENTS_ONLY</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -16,28 +19,50 @@
     <PackageReference Include="PDFsharp" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="PDFtoImage" />
-    <PackageReference Include="Unhwp" />
     <PackageReference Include="Markdig" />
-    <PackageReference Include="ExcelNumberFormat" />
     <PackageReference Include="Svg.Skia" />
     <PackageReference Include="SkiaSharp" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
     <PackageReference Include="SharpCompress" />
-    <PackageReference Include="ExcelDataReader" />
     <PackageReference Include="PdfPig" />
+    <PackageReference Include="AngleSharp" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <!-- These packages belong only to upstream formats outside ConvertDesk's document scope. -->
+  <ItemGroup Condition="'$(ConvertDeskDocumentsOnly)' != 'true'">
+    <PackageReference Include="Unhwp" />
+    <PackageReference Include="ExcelNumberFormat" />
+    <PackageReference Include="ExcelDataReader" />
     <PackageReference Include="MimeKitLite" />
     <PackageReference Include="ACadSharp" />
-    <PackageReference Include="AngleSharp" />
     <PackageReference Include="YamlDotNet" />
     <PackageReference Include="Tomlyn" />
     <PackageReference Include="MsgReader" />
     <PackageReference Include="SharpGLTF.Core" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(ConvertDeskDocumentsOnly)' == 'true'">
+    <!-- Keep the source tree and notices intact; only the product assembly is reduced. -->
+    <Compile Remove="Cad/**/*.cs;Data/**/*.cs;Geo/**/*.cs;Models3D/**/*.cs;Email/**/*.cs;Ofd/**/*.cs;Heic/**/*.cs" />
+    <Compile Remove="Media/FfmpegConverter.cs;Media/LivePhotoWriter.cs;Media/FrameSequenceWriter.cs" />
+    <Compile Remove="Ebooks/**/*.cs" />
+    <Compile Include="Ebooks/Book.cs" />
+    <Compile Remove="Office/Sheets/**/*.cs" />
+    <Compile Include="Office/Sheets/SpreadsheetPrintPlan.cs" />
+    <Compile Remove="Office/SpreadsheetConverter.cs;Office/OoxmlConverter.cs;Hwp/UnhwpConverter.cs;Hwp/Hwpx/SheetDocument.cs;Pdf/PdfTablesConverter.cs" />
+    <Compile Remove="Subtitles/**/*.cs" />
+    <Compile Include="Subtitles/SubtitleEncoding.cs" />
+    <Compile Remove="Archives/**/*.cs" />
+    <Compile Include="Archives/SevenZip.cs;Archives/ArchiveSafety.cs;Archives/Crc32.cs" />
+    <Compile Remove="Vector/VectorConverter.cs;Vector/SvgDxfWriter.cs;Vector/DstEmbroidery.cs;Vector/HpglPlot.cs;Vector/Tracing/**/*.cs" />
+    <Compile Remove="Magick/MagickImageConverter.cs;Magick/ImageJoiner.cs;Fonts/FontConverter.cs;Icns/IcnsConverter.cs;Wic/WicImageConverter.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Filee" />
     <InternalsVisibleTo Include="Filee.Engines.Tests" />
+    <InternalsVisibleTo Include="Filee.Documents.Tests" />
     <InternalsVisibleTo Include="Filee.App.Tests" />
   </ItemGroup>
 

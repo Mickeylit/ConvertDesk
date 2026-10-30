@@ -1,4 +1,4 @@
-// "Convert with Filee" in Finder's right-click menu, as a service Filee.app provides itself (NSServices in its
+// "Convert with ConvertDesk" in Finder's right-click menu, as a service Filee.app provides itself (NSServices in its
 // Info.plist). macOS hands the selected files straight to the running Filee: no Automator workflow, no shell, no
 // second process. Info.plist names the message (convertFiles) and the port (Filee); this registers the object
 // that answers it, an NSObject subclass made at run time with one method, convertFiles:userData:error:.
@@ -11,7 +11,7 @@ namespace Filee.Platform.MacOS;
 public static class MacOSServicesProvider
 {
     /// <summary>The service's menu title in Info.plist; ServicesMenu.strings in each .lproj translates it.</summary>
-    public const string MenuItem = "Convert with Filee";
+    public const string MenuItem = "Convert with ConvertDesk";
 
     /// <summary>The selector macOS sends, without its argument labels (NSMessage in Info.plist).</summary>
     public const string Message = "convertFiles";

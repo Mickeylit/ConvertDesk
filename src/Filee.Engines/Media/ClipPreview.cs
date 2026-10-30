@@ -39,7 +39,7 @@ public static partial class ClipPreview
     public static bool HasSound => Player() is not null;
 
     private static string? Player() =>
-        FfmpegConverter.Locate() is { } tools
+        FfmpegTools.Locate() is { } tools
         && Path.Combine(Path.GetDirectoryName(tools.Ffmpeg) ?? "", EngineEnvironment.ProgramName("ffplay.exe")) is var ffplay
         && File.Exists(ffplay) ? ffplay : null;
 
@@ -55,7 +55,7 @@ public static partial class ClipPreview
     public static async Task PlayAsync(string path, ClipEdit edit, int height, Action<byte[], int, int, double> onFrame,
         CancellationToken cancellationToken)
     {
-        var (ffmpeg, ffprobe) = FfmpegConverter.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
+        var (ffmpeg, ffprobe) = FfmpegTools.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
         var input = Path.GetFullPath(path);
         var info = await MediaInfo.ProbeAsync(ffprobe, input, cancellationToken).ConfigureAwait(false);
         var video = info.Video ?? throw new InvalidOperationException("The file has no video stream.");
@@ -146,7 +146,7 @@ public static partial class ClipPreview
     public static async Task<float[]> ReadLoudnessAsync(string path, double start, double end, int count, string workFolder,
         CancellationToken cancellationToken)
     {
-        var (ffmpeg, _) = FfmpegConverter.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
+        var (ffmpeg, _) = FfmpegTools.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
         var samples = Path.Combine(workFolder, Guid.NewGuid().ToString("N") + ".f32");
         try
         {
@@ -176,7 +176,7 @@ public static partial class ClipPreview
     /// <summary>How long the sound (or video) at <paramref name="path"/> plays, in seconds; throws when it has no sound.</summary>
     public static async Task<double> ReadSoundLengthAsync(string path, CancellationToken cancellationToken)
     {
-        var (_, ffprobe) = FfmpegConverter.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
+        var (_, ffprobe) = FfmpegTools.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
         var info = await MediaInfo.ProbeAsync(ffprobe, Path.GetFullPath(path), cancellationToken);
         if (info.Audio is null)
             throw new InvalidOperationException("The file has no sound.");
@@ -186,7 +186,7 @@ public static partial class ClipPreview
     /// <summary>The silent stretches of the video at <paramref name="path"/> between <paramref name="start"/> and <paramref name="end"/>.</summary>
     public static async Task<IReadOnlyList<ClipRange>> FindSilencesAsync(string path, double start, double end, CancellationToken cancellationToken)
     {
-        var (ffmpeg, _) = FfmpegConverter.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
+        var (ffmpeg, _) = FfmpegTools.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
         var result = await ProcessRunner.RunAsync(ffmpeg, SilenceArguments(Path.GetFullPath(path), start, end), TimeSpan.FromMinutes(10), cancellationToken);
         if (result.ExitCode != 0)
             throw new InvalidOperationException("FFmpeg failed: " + FfmpegRunner.Summarize(result.StandardError));

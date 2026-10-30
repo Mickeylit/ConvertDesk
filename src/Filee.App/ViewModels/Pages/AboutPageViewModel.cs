@@ -81,6 +81,16 @@ public sealed partial class AboutPageViewModel : ObservableObject, IDisposable
             : "";
     }
 
+    public string OriginalLicense { get; } = ReadAsset("avares://Filee/Assets/LICENSE");
+
+    private static string ReadAsset(string path)
+    {
+        var uri = new Uri(path);
+        if (!AssetLoader.Exists(uri)) return "See LICENSE shipped with ConvertDesk.";
+        using var reader = new StreamReader(AssetLoader.Open(uri));
+        return reader.ReadToEnd();
+    }
+
     public string Notices { get; } = ReadNotices();
 
     private static string ReadNotices()

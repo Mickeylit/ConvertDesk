@@ -55,40 +55,6 @@ public class SpreadsheetPrintStudioTests
     }
 
     [AvaloniaFact]
-    public void Multiple_workbooks_keep_independent_studio_windows()
-    {
-        TestServices.EnsureInitialized();
-        var folder = Directory.CreateTempSubdirectory("filee-studios-test-").FullName;
-        var windows = AppHost.Get<WindowService>();
-        var before = windows.SpreadsheetStudios.ToArray();
-        try
-        {
-            var first = Path.Combine(folder, "first.xlsx");
-            var second = Path.Combine(folder, "second.xlsx");
-            WriteWorkbook(first);
-            WriteWorkbook(second);
-
-            windows.ShowSpreadsheetPrintStudio(first);
-            windows.ShowSpreadsheetPrintStudio(second);
-
-            var opened = windows.SpreadsheetStudios.Except(before).ToArray();
-            Assert.Equal(2, opened.Length);
-            Assert.All(opened, window => Assert.True(window.IsVisible));
-            Assert.Equal(["first.xlsx", "second.xlsx"], opened.Select(window =>
-                ((SpreadsheetPrintStudioViewModel)window.DataContext!).FileName).Order());
-            opened[0].Close();
-            Assert.True(opened[1].IsVisible);
-            Assert.DoesNotContain(opened[0], windows.SpreadsheetStudios);
-        }
-        finally
-        {
-            foreach (var window in windows.SpreadsheetStudios.Except(before).ToArray())
-                window.Close();
-            try { Directory.Delete(folder, recursive: true); } catch (IOException) { }
-        }
-    }
-
-    [AvaloniaFact]
     public async Task Closing_during_export_cancels_LibreOffice_and_removes_temporary_files()
     {
         TestServices.EnsureInitialized();

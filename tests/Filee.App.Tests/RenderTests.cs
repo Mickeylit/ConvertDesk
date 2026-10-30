@@ -959,7 +959,7 @@ public class RenderTests
     [InlineData("en")]
     [InlineData("pt-PT")]
     [InlineData("pt-BR")]
-    public void Sponsor_window_with_supporters_renders(string language)
+    public void Sponsor_window_and_modified_app_attribution_render(string language)
     {
         TestServices.EnsureInitialized(language);
         var window = Filee.App.Views.SponsorWindow.Create(AppHost.Get<Filee.Core.Localization.ILocalizer>());
@@ -979,12 +979,13 @@ public class RenderTests
         main.Show();
         Pump();
         var about = main.GetVisualDescendants().OfType<Filee.App.Views.Pages.AboutPage>().Single();
-        about.Supporters.Show(new SupporterList(
-            [new Supporter("Acme", "https://acme.example", "acme.png"), new Supporter("Globex", "https://globex.example")],
-            [new("Kim"), new("Lee"), new("Park")]), _ => Logo());
-        Pump();
-        CheckAcknowledgement(main);
-        Save(main, $"page-about-supporters-{language}.png");
+        var aboutText = about.GetVisualDescendants().OfType<TextBlock>()
+            .Select(t => t.Text ?? "").ToArray();
+        Assert.Contains("ConvertDesk", aboutText);
+        Assert.Contains(aboutText, text => text.Contains("Myeonggu Kim") && text.Contains("not an official Filee release"));
+        Assert.Contains(aboutText, text => text.Contains("MIT License") && text.Contains("Copyright"));
+        Assert.Empty(about.GetVisualDescendants().OfType<Filee.App.Views.SupportersView>());
+        Save(main, $"page-about-attribution-{language}.png");
         main.Close();
 
         static void CheckAcknowledgement(Window target)
@@ -1728,87 +1729,23 @@ public class RenderTests
 
     [AvaloniaTheory]
     [InlineData("en")]
-    [InlineData("ja")]
-    [InlineData("ko")]
-    [InlineData("ru")]
-    [InlineData("ar")]
-    public void Sidebar_shows_the_version_and_a_new_release(string language)
+    [InlineData("zh-CN")]
+    public void Document_shell_displays_its_version_without_upstream_update_controls(string language)
     {
         TestServices.EnsureInitialized(language);
-        var updates = AppHost.Get<UpdateService>();
-        using var vm = new MainWindowViewModel(AppHost.Services, AppHost.Get<Filee.Core.Localization.ILocalizer>(), updates);
-        var window = new MainWindow { DataContext = vm, Width = 1080, Height = 820 };
+        using var vm = new MainWindowViewModel(AppHost.Services, AppHost.Get<Filee.Core.Localization.ILocalizer>());
+        var window = new MainWindow { DataContext = vm, Width = 820, Height = 650 };
         window.Show();
-        Pump();
-        var button = window.FindControl<Button>("UpdateButton")!;
-        var version = window.FindControl<TextBlock>("VersionLabel")!;
-        Assert.False(button.IsVisible);
-        Assert.Contains(UpdateService.CurrentVersion, version.Text);
-
         try
         {
-            updates.Notes = [ReleaseNotes.Parse("9.9.9", """
-                <!-- update
-                level: recommended
-                ko: 엑셀에서 정한 페이지 나누기가 PDF에 반영돼요
-                ko: 한글 문서의 보기 상자와 수식이 PDF에서 제대로 나와요
-                en: Excel page breaks carry over to PDF
-                en: Boxes and equations of 한글 documents come out right in PDFs
-                zh: Excel 中设置的分页符会保留到 PDF 中
-                zh: 韩文 Hangul 文档中的框和公式在 PDF 中正确显示
-                -->
-                """)];
-            updates.LatestVersion = "9.9.9";
             Pump();
-            Assert.True(button.IsVisible);
-            Assert.Contains("9.9.9", vm.UpdateText);
-            Save(window, $"sidebar-update-{language}.png");
-
-            var loc = AppHost.Get<Filee.Core.Localization.ILocalizer>();
-            var notice = new UpdateNoticeWindow(updates, loc, loc.Format("update.notice_title", "9.9.9"));
-            notice.Show();
-            Pump();
-            Save(notice, $"update-notice-{language}.png");
-
-            // A required update: red pill on the card and in the sidebar; an optional one: plain button, grey pill.
-            updates.Notes = [ReleaseNotes.Parse("9.9.9", """
-                <!-- update
-                level: required
-                ko: 변환 결과가 잘못 나오던 문제를 고쳤어요
-                en: Fixes wrong conversion results
-                zh: 修复了转换结果错误的问题
-                -->
-                """)];
-            Pump();
-            Save(notice, $"update-notice-required-{language}.png");
-            Save(window, $"sidebar-update-required-{language}.png");
-            updates.Notes = [ReleaseNotes.Parse("9.9.9", "<!-- update\nlevel: optional\nko: 새 기능\nen: A new feature\n-->")];
-            Pump();
-            Save(window, $"sidebar-update-optional-{language}.png");
-
-            // While the installer downloads, the card, the sidebar button and the tray show the progress.
-            updates.Step = UpdateStep.Downloading;
-            updates.DownloadPercent = 42;
-            Pump();
-            Assert.Contains("42", vm.UpdateText);
-            Save(notice, $"update-notice-downloading-{language}.png");
-            Save(window, $"sidebar-update-downloading-{language}.png");
-            updates.Step = UpdateStep.Idle;
-            notice.Close();
-
-            var feedback = new FeedbackNoticeWindow();
-            feedback.Show();
-            Pump();
-            Save(feedback, $"feedback-notice-{language}.png");
-            feedback.Close();
+            Assert.Null(window.FindControl<Button>("UpdateButton"));
+            Assert.Contains(ProductInfo.Version, window.FindControl<TextBlock>("VersionLabel")!.Text);
+            Assert.DoesNotContain(vm.Items, item => item.Key is "watch" or "presets" or "toolbar");
+            Assert.DoesNotContain(window.GetVisualDescendants().OfType<ListBox>(), list => list.Classes.Contains("nav"));
+            Save(window, $"document-shell-{language}.png");
         }
-        finally
-        {
-            updates.Step = UpdateStep.Idle;
-            updates.LatestVersion = null;
-            updates.Notes = [];
-            window.Close();
-        }
+        finally { window.Close(); TestServices.EnsureInitialized("en"); }
     }
 
     /// <summary>

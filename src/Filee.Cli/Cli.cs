@@ -26,8 +26,8 @@ internal static class Cli
         var options = CliOptions.Parse(args);
         if (options.Error is not null)
         {
-            errors.WriteLine($"filee: {options.Error}");
-            errors.WriteLine("Run 'filee help' for usage.");
+            errors.WriteLine($"convertdesk: {options.Error}");
+            errors.WriteLine("Run 'convertdesk help' for usage.");
             return UsageError;
         }
         switch (options.Command)
@@ -36,7 +36,7 @@ internal static class Cli
                 output.Write(Help.Text(options.Inputs.FirstOrDefault()));
                 return Success;
             case "version":
-                output.WriteLine($"filee {Help.Version}");
+                output.WriteLine($"convertdesk {Help.Version}");
                 return Success;
         }
 
@@ -60,12 +60,19 @@ internal static class Cli
         var missing = new List<string>();
         var files = ExpandInputs(options.Inputs, options.Recursive, missing);
         foreach (var path in missing)
-            errors.WriteLine($"filee: not found: {path}");
+            errors.WriteLine($"convertdesk: not found: {path}");
         if (missing.Count > 0)
             return UsageError;
+        var unsupported = files.Where(f => !ProductFormatPolicy.IsAllowedPath(f)).ToList();
+        if (unsupported.Count > 0)
+        {
+            foreach (var path in unsupported)
+                errors.WriteLine($"convertdesk: unsupported input: {path}. Supported formats: HTML, PDF, PPTX, DOCX, TXT.");
+            return UsageError;
+        }
         if (files.Count == 0)
         {
-            errors.WriteLine("filee: no files to convert.");
+            errors.WriteLine("convertdesk: no files to convert.");
             return NothingToDo;
         }
 
@@ -94,6 +101,7 @@ internal static class Cli
             IncludeSubfolders = options.Recursive,
             OutputFolder = options.Output is null ? "" : Path.GetFullPath(options.Output),
             Originals = options.MoveOriginals ? AfterConversion.MoveToOriginals : AfterConversion.Keep,
+            Include = [.. ProductFormatPolicy.AllowedExtensions.Select(e => "*." + e)],
         };
         UseFolder(preset, rule.ResolvedOutputFolder);
         preset.Output.KeepFoldersFrom = rule.Folder; // as the app's watch folders: subfolders stay subfolders
@@ -104,7 +112,7 @@ internal static class Cli
             settleTime: settle);
         if (!watcher.Start())
         {
-            errors.WriteLine($"filee: {watcher.Error}");
+            errors.WriteLine($"convertdesk: {watcher.Error}");
             return UsageError;
         }
         if (!options.Quiet)
@@ -222,17 +230,22 @@ internal static class Cli
     /// <summary>The preset from --to or --preset, with --quality and --overwrite/--skip applied (a copy).</summary>
     private static Preset? ResolvePreset(CliOptions options, CliHost host, TextWriter errors)
     {
+        if (options.Zip)
+        {
+            errors.WriteLine("convertdesk: ZIP output is not supported. Choose HTML, PDF, PPTX, DOCX or TXT.");
+            return null;
+        }
         Preset preset;
         if (options.To is not null)
         {
             if (FindFormat(options.To) is not { } format)
             {
-                errors.WriteLine($"filee: unknown format '{options.To}'. Run 'filee formats' for the list.");
+                errors.WriteLine($"convertdesk: unknown format '{options.To}'. Run 'convertdesk formats' for the list.");
                 return null;
             }
             if (!format.Writable)
             {
-                errors.WriteLine($"filee: Filee reads {format.DisplayName} but can't write it.");
+                errors.WriteLine($"convertdesk: ConvertDesk reads {format.DisplayName} but can't write it.");
                 return null;
             }
             preset = new Preset { TargetFormat = format.Id };
@@ -248,7 +261,7 @@ internal static class Cli
             var found = Find(host.Store.Presets.Where(p => !p.IsGroup && !p.IsTool)) ?? Find(host.Store.Presets);
             if (found is null)
             {
-                errors.WriteLine($"filee: no preset '{wanted}'. Run 'filee presets' for the list.");
+                errors.WriteLine($"convertdesk: no preset '{wanted}'. Run 'convertdesk presets' for the list.");
                 return null;
             }
             if (found.IsGroup)
@@ -256,18 +269,24 @@ internal static class Cli
                 // A donut group converts nothing; name what it holds so the right one is easy to pick.
                 var members = found.SubPresetIds.Select(host.Store.FindConversion).OfType<Preset>().Select(p => p.Id).ToList();
                 errors.WriteLine(members.Count > 0
-                    ? $"filee: '{wanted}' is a group on the donut, not a conversion. Use one of: {string.Join(", ", members)}"
-                    : $"filee: '{wanted}' is a group on the donut, not a conversion, and has no presets left. Run 'filee presets' for the list.");
+                    ? $"convertdesk: '{wanted}' is a group on the donut, not a conversion. Use one of: {string.Join(", ", members)}"
+                    : $"convertdesk: '{wanted}' is a group on the donut, not a conversion, and has no presets left. Run 'convertdesk presets' for the list.");
                 return null;
             }
             if (found.IsTool)
             {
-                errors.WriteLine($"filee: '{wanted}' is an interactive tool, not a conversion.");
+                errors.WriteLine($"convertdesk: '{wanted}' is an interactive tool, not a conversion.");
                 return null;
             }
             preset = found.Clone();
         }
+        if (!ProductFormatPolicy.IsAllowedFormatId(preset.TargetFormat))
+        {
+            errors.WriteLine("convertdesk: supported output formats are HTML, PDF, PPTX, DOCX and TXT.");
+            return null;
+        }
         preset = host.Store.Settings.WithDefaultOutput(preset);
+        preset.Output.ZipResult = false;
         if (options.Quality is { } quality)
             preset.Image.Quality = quality;
         if (options.Conflict is { } conflict)
@@ -289,7 +308,8 @@ internal static class Cli
     internal static FileFormat? FindFormat(string text)
     {
         var key = text.Trim().TrimStart('.').ToLowerInvariant();
-        return FormatRegistry.FindById(key) ?? FormatRegistry.FindByExtension(key);
+        return ProductFormatPolicy.Formats.FirstOrDefault(f => f.Id.Equals(key, StringComparison.OrdinalIgnoreCase)
+            || f.Extensions.Contains(key, StringComparer.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -313,7 +333,7 @@ internal static class Cli
                 files.AddRange(matches);
             }
             else if (Directory.Exists(input))
-                files.AddRange(Directory.EnumerateFiles(input, "*", option).Where(f => FormatRegistry.Detect(f) is not null));
+                files.AddRange(Directory.EnumerateFiles(input, "*", option).Where(ProductFormatPolicy.IsAllowedPath));
             else if (File.Exists(input))
                 files.Add(input);
             else
@@ -328,7 +348,7 @@ internal static class Cli
         {
             if (FindFormat(name) is not { } from)
             {
-                errors.WriteLine($"filee: unknown format '{name}'.");
+                errors.WriteLine($"convertdesk: unknown format '{name}'.");
                 return UsageError;
             }
             var installed = host.Catalog.CreatePlanner();
@@ -336,24 +356,24 @@ internal static class Cli
             var everything = host.Catalog.CreatePlanner(host.Catalog.All
                 .Where(c => host.Catalog.StatusOf(c).ReasonKey != "engine.reason.unsupported_platform")
                 .Select(c => c.Id).ToList());
-            var targets = FormatRegistry.Known.Where(t => t.Writable && t.Id != from.Id && t.Id != FormatRegistry.Folder).ToList();
+            var targets = ProductFormatPolicy.Formats.Where(t => t.Writable && t.Id != from.Id).ToList();
             var now = targets.Where(t => installed.CanConvert(from.Id, t.Id)).Select(t => t.Id).ToList();
             var later = targets.Where(t => !now.Contains(t.Id) && everything.CanConvert(from.Id, t.Id)).Select(t => t.Id).ToList();
             output.WriteLine($"{from.DisplayName} ({string.Join(", ", from.Extensions)}) converts to:");
             output.WriteLine(now.Count > 0 ? "  " + string.Join(", ", now) : "  (nothing with the engines installed now)");
             if (later.Count > 0)
-                output.WriteLine($"With optional engines (install them in Filee, Settings → Engines):{Environment.NewLine}  {string.Join(", ", later)}");
+                output.WriteLine($"With optional engines (install them in ConvertDesk, Settings → Engines):{Environment.NewLine}  {string.Join(", ", later)}");
             return Success;
         }
 
-        foreach (var group in FormatRegistry.Known.Where(f => f.Id != FormatRegistry.Folder).GroupBy(f => f.Category))
+        foreach (var group in ProductFormatPolicy.Formats.GroupBy(f => f.Category))
         {
             output.WriteLine($"{group.Key}:");
             foreach (var format in group)
                 output.WriteLine($"  {format.Id,-10} {format.DisplayName}{(format.Writable ? "" : " (read only)")}  .{string.Join(" .", format.Extensions)}");
         }
         output.WriteLine();
-        output.WriteLine("Run 'filee formats <format>' to see what a format converts to.");
+        output.WriteLine("Run 'convertdesk formats <format>' to see what a format converts to.");
         return Success;
     }
 

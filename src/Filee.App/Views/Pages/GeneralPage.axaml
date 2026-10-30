@@ -6,7 +6,7 @@
   <StackPanel Spacing="18">
     <TextBlock Classes="h1" Text="{DynamicResource general.title}" />
 
-    <Border Classes="card">
+    <Border BorderThickness="0,0,0,1" BorderBrush="{DynamicResource SubtleBorderBrush}" Padding="0,0,0,20">
       <StackPanel Spacing="14">
         <StackPanel>
           <TextBlock Classes="label" Text="{DynamicResource general.language}" />
@@ -38,10 +38,9 @@
     </Border>
 
     <!-- Where presets set to "Default" save (AppSettings.DefaultOutput). -->
-    <Border Classes="card">
+    <Border BorderThickness="0,0,0,1" BorderBrush="{DynamicResource SubtleBorderBrush}" Padding="0,0,0,20">
       <StackPanel Spacing="10">
         <TextBlock Classes="h2" Text="{DynamicResource general.default_output}" />
-        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{DynamicResource general.default_output_hint}" />
         <ComboBox ItemsSource="{Binding OutputLocations}" SelectedItem="{Binding DefaultLocation}" MinWidth="240" AutomationProperties.Name="{DynamicResource general.default_output}" />
         <StackPanel IsVisible="{Binding ShowDefaultSubfolder}">
           <TextBlock Classes="label" Text="{DynamicResource presets.subfolder}" />
@@ -56,30 +55,10 @@
           </DockPanel>
         </StackPanel>
         <ToggleSwitch Content="{DynamicResource general.keep_dates}" IsChecked="{Binding KeepFileDates}" />
-        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{DynamicResource general.keep_dates_hint}" Margin="0,-6,0,0" />
-        <ToggleSwitch Content="{DynamicResource general.zip_geo}" IsChecked="{Binding ZipGeoResults}" />
-        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{DynamicResource general.zip_geo_hint}" Margin="0,-6,0,0" />
       </StackPanel>
     </Border>
 
-    <!-- Pictures, links and downloads dragged out of a web browser (AppSettings.BrowserDrops). -->
-    <Border Classes="card">
-      <StackPanel Spacing="10">
-        <TextBlock Classes="h2" Text="{DynamicResource general.browser_drops}" />
-        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{DynamicResource general.browser_drops_hint}" />
-        <StackPanel>
-          <TextBlock Classes="label" Text="{DynamicResource general.browser_drops_folder}" />
-          <DockPanel HorizontalAlignment="Left">
-            <Button DockPanel.Dock="Right" Margin="8,0,0,0" Content="{DynamicResource presets.browse}" Click="OnBrowseBrowserFolder" />
-            <TextBox Text="{Binding BrowserFolder}" PlaceholderText="{Binding DownloadsFolder}" Width="440" />
-          </DockPanel>
-        </StackPanel>
-        <CheckBox Content="{DynamicResource general.browser_drops_only_converted}" IsChecked="{Binding SaveOnlyConverted}" />
-        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{DynamicResource general.browser_drops_only_converted_hint}" Margin="0,-6,0,0" />
-      </StackPanel>
-    </Border>
-
-    <Border Classes="card">
+    <Border BorderThickness="0,0,0,1" BorderBrush="{DynamicResource SubtleBorderBrush}" Padding="0,0,0,20">
       <StackPanel Spacing="12">
         <TextBlock Classes="h2" Text="{DynamicResource general.history}" />
         <ToggleSwitch Content="{DynamicResource general.no_history}" IsChecked="{Binding NoHistory}" />
@@ -95,26 +74,8 @@
       </StackPanel>
     </Border>
 
-    <Border Classes="card">
-      <StackPanel Spacing="12">
-        <TextBlock Classes="h2" Text="{DynamicResource general.library}" />
-        <WrapPanel>
-          <Button Content="{DynamicResource general.export}" Click="OnExport" Margin="0,0,8,8" />
-          <Button Content="{DynamicResource general.import}" Click="OnImport" Margin="0,0,8,8" />
-          <Button Content="{DynamicResource general.reset_library}" Click="OnReset" Margin="0,0,8,8" />
-        </WrapPanel>
-        <TextBlock Classes="muted" Text="{Binding LibraryMessage}" />
-      </StackPanel>
-    </Border>
 
-    <Border Classes="card">
-      <DockPanel>
-        <Button DockPanel.Dock="Right" Content="{DynamicResource general.open_data_folder}" Command="{Binding OpenDataFolderCommand}" />
-        <StackPanel VerticalAlignment="Center">
-          <TextBlock Classes="label" Text="{DynamicResource general.data_folder}" />
-          <TextBlock Text="{Binding DataFolder}" TextTrimming="CharacterEllipsis" />
-        </StackPanel>
-      </DockPanel>
-    </Border>
+
+
   </StackPanel>
 </UserControl>

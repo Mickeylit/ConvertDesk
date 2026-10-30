@@ -37,16 +37,16 @@ public sealed class ThemeSettings
 {
     public ThemeStyle Style { get; set; } = ThemeStyle.Soft;
 
-    public ThemeMode Mode { get; set; } = ThemeMode.System;
+    public ThemeMode Mode { get; set; } = ThemeMode.Light;
 
     /// <summary>Accent colour as <c>#RRGGBB</c>.</summary>
-    public string Accent { get; set; } = "#7F77DD";
+    public string Accent { get; set; } = "#286852";
 
     /// <summary>Active curated preset key (e.g. "mint", "peach") when a coordinated light/dark pair is used; null for custom choices.</summary>
     public string? PresetKey { get; set; }
 
     /// <summary>Base corner radius in pixels. Larger = "softer" UI.</summary>
-    public double CornerRadius { get; set; } = 16;
+    public double CornerRadius { get; set; } = 8;
 
     /// <summary>
     /// Disables animations (for low-end PCs or motion sensitivity).
@@ -130,12 +130,12 @@ public sealed class AppSettings
     /// <summary><c>"auto"</c>, <c>"en"</c>, <c>"ko"</c> or <c>"zh-CN"</c>.</summary>
     public string Language { get; set; } = "auto";
 
-    public bool StartWithSystem { get; set; } = true;
+    public bool StartWithSystem { get; set; }
 
     /// <summary>Show the Explorer "Convert with Filee" context menu entry.</summary>
-    public bool ContextMenuEnabled { get; set; } = true;
+    public bool ContextMenuEnabled { get; set; }
 
-    public bool CheckForUpdates { get; set; } = true;
+    public bool CheckForUpdates { get; set; }
 
     /// <summary>What closing the main window does. A value from a newer Filee reads as <see cref="CloseAction.Ask"/>.</summary>
     [JsonConverter(typeof(LenientEnumJsonConverter<CloseAction>))]
@@ -205,7 +205,7 @@ public sealed class AppSettings
     public int SuccessfulConversions { get; set; }
 
     /// <summary>Set once the "Is Filee helping you?" card (GitHub star / feedback) has been shown.</summary>
-    public bool FeedbackPromptShown { get; set; }
+    public bool FeedbackPromptShown { get; set; } = true;
 
     /// <summary>macOS: set once Filee has shown the system's Accessibility alert, which it shows only once (#316).</summary>
     public bool AccessibilityPromptShown { get; set; }

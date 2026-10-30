@@ -6,13 +6,19 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 using Filee.Engines.Ebooks;
+#if !CONVERTDESK_DOCUMENTS_ONLY
 using Filee.Engines.Email;
+#endif
 using Filee.Engines.Hwp.Hwpx.Docx;
 using Filee.Engines.Hwp.Hwpx.Pptx;
 using Filee.Engines.Infrastructure;
+#if !CONVERTDESK_DOCUMENTS_ONLY
 using Filee.Engines.Ofd;
+#endif
 using Filee.Engines.Office;
+#if !CONVERTDESK_DOCUMENTS_ONLY
 using Filee.Engines.Office.Sheets;
+#endif
 using Filee.Engines.Pdf;
 
 namespace Filee.Engines.Hwp.Hwpx;
@@ -28,6 +34,16 @@ internal static class DocumentReaders
     /// </summary>
     private static readonly Dictionary<string, Func<string, string, HDocument>> BuiltIn = new(StringComparer.OrdinalIgnoreCase)
     {
+#if CONVERTDESK_DOCUMENTS_ONLY
+        // HWPX and Markdown remain internal intermediate formats, never public product inputs.
+        ["docx"] = DocxReader.Read,
+        ["txt"] = (path, _) => TextDocument(File.ReadAllBytes(path)),
+        ["md"] = (path, _) => MarkdownReader.Read(DecodeText(File.ReadAllBytes(path)), Path.GetDirectoryName(Path.GetFullPath(path))!),
+        ["pptx"] = PptxReader.Read,
+        ["pdf"] = PdfDocumentReader.Read,
+        ["hwpx"] = HwpxReader.Read,
+        ["html"] = HtmlReader.Read,
+#else
         ["docx"] = DocxReader.Read,
         ["docm"] = DocxReader.Read,
         ["dotx"] = DocxReader.Read,
@@ -62,6 +78,7 @@ internal static class DocumentReaders
         ["fb2"] = Fb2Reader.Read,
         ["htmlz"] = ZippedText.ReadHtmlz,
         ["txtz"] = ZippedText.ReadTxtz,
+#endif
     };
 
     /// <summary>
@@ -70,6 +87,7 @@ internal static class DocumentReaders
     /// </summary>
     private static readonly Dictionary<string, string> ThroughPandoc = new(StringComparer.OrdinalIgnoreCase)
     {
+#if !CONVERTDESK_DOCUMENTS_ONLY
         ["odt"] = "odt",
         ["rtf"] = "rtf",
         ["html"] = "html",
@@ -84,6 +102,7 @@ internal static class DocumentReaders
         ["textile"] = "textile",
         ["man"] = "man",
         ["opml"] = "opml",
+#endif
     };
 
     /// <summary>Formats read without any optional engine.</summary>

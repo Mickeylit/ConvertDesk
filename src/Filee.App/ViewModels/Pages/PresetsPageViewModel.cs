@@ -47,7 +47,7 @@ public sealed partial class PresetsPageViewModel : ObservableObject, IFitsWindow
         foreach (var preset in store.Presets.Where(p => !p.IsGroup && !p.IsTool))
             Presets.Add(new PresetListItem(preset, loc));
         SelectedPreset = Presets.FirstOrDefault();
-        PlacePresets = [.. BuiltInData.PlacePresets().Select(p => new PresetListItem(p, loc))];
+        PlacePresets = [.. BuiltInData.PlacePresets().Where(Filee.Core.Formats.ProductFormatPolicy.IsAllowedPreset).Select(p => new PresetListItem(p, loc))];
     }
 
     public ObservableCollection<PresetListItem> Presets { get; } = [];
@@ -83,7 +83,7 @@ public sealed partial class PresetsPageViewModel : ObservableObject, IFitsWindow
     private void Revert() => OnSelectedPresetChanged(SelectedPreset);
 
     [RelayCommand]
-    private void Add() => AddPreset(new Preset { Name = _loc["toolbar.new_preset"], TargetFormat = "png" });
+    private void Add() => AddPreset(new Preset { Name = _loc["toolbar.new_preset"], TargetFormat = "pdf" });
 
     /// <summary>The ready-made presets Add offers besides an empty one (<see cref="BuiltInData.PlacePresets"/>).</summary>
     public IReadOnlyList<PresetListItem> PlacePresets { get; }

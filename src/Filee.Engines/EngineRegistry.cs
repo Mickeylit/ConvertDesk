@@ -1,6 +1,15 @@
 // THE place where conversion engines are registered. Adding an engine = one line in CreateAll.
 
 using Filee.Core.Conversion;
+using Filee.Engines.Hwp;
+using Filee.Engines.Hwp.Hwpx;
+using Filee.Engines.Infrastructure;
+using Filee.Engines.Ocr;
+using Filee.Engines.Office;
+using Filee.Engines.Pdf;
+using Filee.Engines.Text;
+using Filee.Engines.Vector;
+#if !CONVERTDESK_DOCUMENTS_ONLY
 using Filee.Engines.Archives;
 using Filee.Engines.Cad;
 using Filee.Engines.Data;
@@ -8,20 +17,13 @@ using Filee.Engines.Ebooks;
 using Filee.Engines.Email;
 using Filee.Engines.Fonts;
 using Filee.Engines.Geo;
-using Filee.Engines.Hwp;
-using Filee.Engines.Hwp.Hwpx;
 using Filee.Engines.Icns;
-using Filee.Engines.Infrastructure;
 using Filee.Engines.Magick;
 using Filee.Engines.Media;
 using Filee.Engines.Models3D;
-using Filee.Engines.Ocr;
-using Filee.Engines.Office;
-using Filee.Engines.Pdf;
 using Filee.Engines.Subtitles;
-using Filee.Engines.Text;
-using Filee.Engines.Vector;
 using Filee.Engines.Wic;
+#endif
 using Microsoft.Extensions.Logging;
 
 namespace Filee.Engines;
@@ -29,6 +31,25 @@ namespace Filee.Engines;
 /// <summary>Creates every built-in converter.</summary>
 public static class EngineRegistry
 {
+    /// <summary>Only the engines used by ConvertDesk's five document formats and their internal routes.</summary>
+    public static IReadOnlyList<IConverter> CreateDocumentConverters(EngineEnvironment env, ILoggerFactory? loggers = null) =>
+    [
+        new DocumentExportConverter(),
+        new DocxWriterConverter(),
+        new PdfTextConverter(),
+        new PdfSlidesConverter(),
+        new PdfSharpConverter(),
+        new PdfiumConverter(),
+        new HwpxConverter(),
+        new RhwpConverter(),
+        new MarkdownConverter(),
+        new PandocConverter(),
+        new LibreOfficeConverter(env, loggers?.CreateLogger<LibreOfficeConverter>()),
+        new VisionConverter(),
+        new TesseractConverter(),
+        new GhostscriptConverter(),
+    ];
+
     /// <summary>
     /// Instantiates all converters. Order only matters as a tie-breaker when no priority is set, so it mirrors
     /// AppSettings.EnginePriority: built-in engines first, the optional downloads last. Software installed on the
@@ -39,6 +60,9 @@ public static class EngineRegistry
     /// its container repacked.
     /// </param>
     public static IReadOnlyList<IConverter> CreateAll(EngineEnvironment env, ILoggerFactory? loggers = null) =>
+#if CONVERTDESK_DOCUMENTS_ONLY
+        CreateDocumentConverters(env, loggers);
+#else
     [
         new MagickImageConverter(),
         new PdfSharpConverter(),
@@ -73,6 +97,7 @@ public static class EngineRegistry
         new CalibreConverter(),
         new LibreOfficeConverter(env, loggers?.CreateLogger<LibreOfficeConverter>()),
     ];
+#endif
 
     /// <summary>Finds the PDF merger among the converters.</summary>
     public static IPdfMerger? FindPdfMerger(IEnumerable<IConverter> converters) =>

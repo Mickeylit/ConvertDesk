@@ -1,0 +1,5 @@
+ConvertDesk 0.2.0
+Upstream: https://github.com/KnifeLemon/Filee
+Base release: v2.2.0
+Base commit: 206df593ca0bc5f00f47c3b2bdf8f6aa98e50b1f
+Local derivative changes: included in this source archive; original MIT license retained.

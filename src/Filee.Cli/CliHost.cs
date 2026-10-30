@@ -34,11 +34,11 @@ internal sealed class CliHost : IAsyncDisposable
         EngineEnvironment.LibreOfficeForHwp = store.Settings.LibreOfficeForHwp;
         EngineEnvironment.LibreOfficeForDocuments = store.Settings.LibreOfficeForDocuments;
         EngineEnvironment.LibreOfficeForSheets = store.Settings.LibreOfficeForSheets;
-        var converters = EngineRegistry.CreateAll(new EngineEnvironment(store.Directory));
+        var converters = EngineRegistry.CreateDocumentConverters(new EngineEnvironment(store.Directory));
         var catalog = new ConverterCatalog(converters) { Priority = store.Settings.EnginePriority };
         var queue = new JobQueue(catalog, EngineRegistry.FindPdfMerger(converters), combiner: EngineRegistry.FindFileCombiner(converters),
             tiffMerger: EngineRegistry.FindTiffMerger(converters), mediaJoiner: EngineRegistry.FindMediaJoiner(converters),
-            moveToTrash: Trash());
+            moveToTrash: Trash(), enforceProductFormats: true);
         return new CliHost(store, catalog, queue);
     }
 

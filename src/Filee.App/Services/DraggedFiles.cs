@@ -1,7 +1,6 @@
 // The files in a drag. Avalonia reads file URLs (what Explorer, Finder and Linux file managers offer); on macOS
 // some other file managers offer the older NSFilenamesPboardType array of paths instead (QSpace Pro, issue #160),
-// which Avalonia passes through as a platform format of its own. Pictures, links and downloads dragged out of a web
-// browser are read by BrowserDrags and stand as placeholders until their conversion saves them.
+// which Avalonia passes through as a platform format of its own. Browser URLs and virtual transfers are not accepted.
 
 using Avalonia.Input;
 using Avalonia.Platform.Storage;
@@ -26,17 +25,18 @@ internal static class DraggedFiles
     /// page).
     /// </summary>
     public static bool Offered(IDataTransfer data) =>
-        data.Contains(DataFormat.File) || data.Items.Any(item => item.Formats.Any(IsFilenames)) || BrowserDrags.MayOffer(data);
+        data.Contains(DataFormat.File) || data.Items.Any(item => item.Formats.Any(IsFilenames));
 
-    /// <summary>
-    /// The files in a drag: from a browser when it brought some (as placeholders, see <see cref="BrowserDrags"/>),
-    /// else the local files. <paramref name="forDrop"/>: see <see cref="BrowserDrags.Read(IDataTransfer, bool)"/>.
-    /// </summary>
+    /// <summary>Reads existing local paths only; browser addresses never become placeholder files or downloads.</summary>
     public static DraggedItems Read(IDataTransfer data, bool forDrop)
     {
-        if (BrowserDrags.Read(data, forDrop) is { } web)
-            return new DraggedItems(web.Placeholders, web);
         var files = Local(data);
+        // A rejected Windows virtual transfer still needs its owner released after the drop.
+        // Do not open its stream; during DragEnter the source still owns the ongoing gesture.
+        if (forDrop)
+            foreach (var item in data.TryGetFiles() ?? [])
+                if (item.TryGetLocalPath() is null)
+                    item.Dispose();
         return files.Count == 0 ? DraggedItems.None : new DraggedItems(files, null);
     }
 

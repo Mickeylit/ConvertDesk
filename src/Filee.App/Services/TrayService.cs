@@ -1,5 +1,4 @@
-// System tray icon: open settings, pause gestures, install a new version, quit.
-
+// A document workspace, optional gesture pause, and quit. The tray has no release-feed dependency.
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -7,78 +6,87 @@ using Avalonia.Platform;
 using Filee.Core.Localization;
 using Filee.Core.Platform;
 using Filee.Core.Settings;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Filee.App.Services;
 
-public sealed class TrayService(UserDataStore store, ILocalizer loc, IPlatformServices platform, WindowService windows,
-    UpdateService updates)
+public sealed class TrayService : IDisposable
 {
+    private readonly UserDataStore _store;
+    private readonly ILocalizer _loc;
+    private readonly IPlatformServices _platform;
+    private readonly WindowService _windows;
+    private Application? _app;
     private TrayIcon? _tray;
-    private NativeMenuItem? _open, _pause, _quit, _update;
+    private NativeMenuItem? _open, _pause, _quit;
+
+    [ActivatorUtilitiesConstructor]
+    public TrayService(UserDataStore store, ILocalizer loc, IPlatformServices platform, WindowService windows)
+        => (_store, _loc, _platform, _windows) = (store, loc, platform, windows);
+
+    // Source compatibility for hosts which still construct the shared tray with an update service.
+    public TrayService(UserDataStore store, ILocalizer loc, IPlatformServices platform, WindowService windows,
+        UpdateService updates) : this(store, loc, platform, windows) { }
 
     public void Create(Application app)
     {
-        using var iconStream = AssetLoader.Open(new Uri("avares://Filee/Assets/Icons/filee.ico"));
+        Dispose();
+        _app = app;
+        using var stream = AssetLoader.Open(new Uri("avares://Filee/Assets/Icons/convertdesk.ico"));
         _open = new NativeMenuItem();
-        _open.Click += (_, _) => windows.ShowMain();
+        _open.Click += OnOpen;
         _pause = new NativeMenuItem();
-        _pause.Click += (_, _) =>
-        {
-            store.Settings.Paused = !store.Settings.Paused;
-            store.SaveSettings();
-        };
+        _pause.Click += OnPause;
         _quit = new NativeMenuItem();
-        _quit.Click += (_, _) => (app.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
-        _update = new NativeMenuItem();
-        _update.Click += async (_, _) => await windows.StartUpdateAsync(updates);
-
+        _quit.Click += OnQuit;
         _tray = new TrayIcon
         {
-            Icon = new WindowIcon(iconStream),
-            // Set before the icon is attached: on macOS Avalonia passes the tooltip to native code, which can't take null.
-            ToolTipText = "Filee",
+            Icon = new WindowIcon(stream),
+            ToolTipText = ProductInfo.Name,
             Menu = new NativeMenu { Items = { _open, _pause, new NativeMenuItemSeparator(), _quit } },
-            IsVisible = platform.SupportsDockVisibility ? store.Settings.ShowMenuBarIcon : true,
+            IsVisible = !_platform.SupportsDockVisibility || _store.Settings.ShowMenuBarIcon,
         };
-        _tray.Clicked += (_, _) => windows.ShowMain();
+        _tray.Clicked += OnOpen;
         TrayIcon.SetIcons(app, [_tray]);
-
+        _loc.LanguageChanged += OnChanged;
+        _store.SettingsChanged += OnChanged;
         Refresh();
-        loc.LanguageChanged += (_, _) => Refresh();
-        store.SettingsChanged += (_, _) => Refresh();
-        updates.PropertyChanged += (_, e) =>
-        {
-            if (UpdateTexts.Affects(e.PropertyName))
-                Refresh();
-        };
     }
+
+    private void OnOpen(object? sender, EventArgs e) => _windows.ShowMain("home");
+    private void OnPause(object? sender, EventArgs e)
+    {
+        _store.Settings.Paused = !_store.Settings.Paused;
+        _store.SaveSettings();
+    }
+    private void OnQuit(object? sender, EventArgs e) =>
+        (_app?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
+    private void OnChanged(object? sender, EventArgs e) => Refresh();
 
     private void Refresh()
     {
-        if (_tray?.Menu is not { } menu)
-            return;
-        _tray.IsVisible = platform.SupportsDockVisibility ? store.Settings.ShowMenuBarIcon : true;
-        // "Update to x.y.z" sits at the top of the menu while a newer release is out ("Downloading… 42%" meanwhile).
-        if (updates.LatestVersion is { } latest)
-        {
-            _update!.Header = updates.Step is UpdateStep.Downloading or UpdateStep.Installing
-                ? UpdateTexts.Short(updates, loc)
-                : loc.Format("tray.update", latest);
-            if (!menu.Items.Contains(_update))
-                menu.Items.Insert(0, _update);
-        }
-        else
-        {
-            menu.Items.Remove(_update!);
-        }
-        _open!.Header = loc["tray.open"];
-        _pause!.Header = store.Settings.Paused ? loc["tray.resume"] : loc["tray.pause"];
-        _quit!.Header = loc["tray.quit"];
-        var drag = store.Settings.Triggers.FirstOrDefault(t => t.Enabled && t.Kind == TriggerKind.Drag);
-        _tray.ToolTipText = store.Settings.Paused
-            ? loc["triggers.paused"]
-            : loc.Format("tray.tooltip", drag is null ? "—" : GestureText.Modifiers(drag.Modifiers));
+        if (_tray is null) return;
+        _tray.IsVisible = !_platform.SupportsDockVisibility || _store.Settings.ShowMenuBarIcon;
+        _open!.Header = _loc["tray.open"];
+        _pause!.Header = _loc[_store.Settings.Paused ? "tray.resume" : "tray.pause"];
+        _quit!.Header = _loc["tray.quit"];
+        _tray.ToolTipText = _store.Settings.Paused ? _loc["triggers.paused"] : ProductInfo.Name;
     }
 
-    public void Dispose() => _tray?.Dispose();
+    public void Dispose()
+    {
+        _loc.LanguageChanged -= OnChanged;
+        _store.SettingsChanged -= OnChanged;
+        if (_tray is not null)
+        {
+            _tray.Clicked -= OnOpen;
+            if (_app is not null) TrayIcon.GetIcons(_app)?.Remove(_tray);
+            _tray.Dispose();
+        }
+        if (_open is not null) _open.Click -= OnOpen;
+        if (_pause is not null) _pause.Click -= OnPause;
+        if (_quit is not null) _quit.Click -= OnQuit;
+        _tray = null;
+        _app = null;
+    }
 }

@@ -1,33 +1,34 @@
-This package requires macOS 13 or later and contains a separate build for
-Apple Silicon or Intel Macs. The .NET runtime is included.
-Run ./install.sh to copy Filee.app to ~/Applications and add ~/.local/bin/filee.
-From the .dmg, drag Filee.app onto Applications instead (no filee command then).
-You can also move Filee.app into Applications manually. Keep its location stable
-so Accessibility and Finder Automation permissions continue to identify it.
+ConvertDesk 0.2 — macOS 使用说明
 
-Test packages are ad-hoc signed and are not notarized. For a downloaded test
-build from the .dmg or moved by hand, use System Settings > Privacy & Security >
-Open Anyway when macOS blocks the first launch (install.sh clears the download
-flag of the copy it installs). Only open a build whose source and checksum you
-trust.
+安装与启动
+1. 打开 DMG，将 ConvertDesk.app 拖入“应用程序”。
+2. 打开 ConvertDesk。当前本地构建使用 ad-hoc 签名，尚未经过 Apple 公证；
+   如果 macOS 阻止首次启动，在“系统设置 → 隐私与安全”中允许打开。
+3. 窗口内拖放或选择文件可直接使用，不要求辅助功能权限，无需重启电脑。
 
-Allow Filee in System Settings > Privacy & Security > Accessibility for global
-gestures. Filee asks once; until it is allowed, its Home page says so.
-After an update or a reinstall, from the .dmg or with install.sh, macOS may
-still list Filee switched on while gestures wait for the permission: it belongs
-to the earlier copy, which was signed differently. Select Filee there, remove it
-with the - button, then add Filee.app again with + and switch it on.
-Allow Finder under Automation when using a selection shortcut.
-Enable the Finder Quick Action in Filee settings. Services can also be managed
-under System Settings > Keyboard > Keyboard Shortcuts > Services.
+转换文档
+1. 把 HTML、PDF、PPTX、DOCX、TXT 文件拖入窗口，或点击“选择文件”。
+2. 选择目标格式，再点击“开始转换”。支持一次添加多个文件。
+3. 结果默认保存在原文件旁；原文件保留，重名结果自动编号。
+   转换后可点击“打开文件夹”。顶部“设置 → 通用”可调整输出位置。
 
-Run ./uninstall.sh to remove the ~/Applications installation, integration and
-Filee-downloaded engines. Your settings and conversion results are kept.
-If integration cleanup fails, the installation is kept so you can fix the error
-and run the uninstaller again. A manually placed app in
-/Applications can be removed after running its Filee executable with
---uninstall-cleanup.
+转换边界
+- PDF 转 PPTX：每页是一张图片幻灯片，页内文字不可编辑。
+- HTML、DOCX、TXT 转 PPTX：生成可编辑内容，但会重新排版。
+- 扫描 PDF 没有文字层时，须先使用 OCR 工具识别文字。
+  当前主工作台不会自动识别扫描件，也未提供 OCR 开关。
+- 复杂表格、公式、字体、动画和网页 CSS 不保证完全保留。
 
-rhwp and 7-Zip are bundled. Other engines can be installed in Filee settings or
-discovered in the system. Public distribution requires Developer ID signing
-and notarization; neither is supplied by this test package.
+可选的 Finder 快捷方式
+按住 Option 拖动文件唤出圆环，需要在设置中启用对应触发方式，
+并在“系统设置 → 隐私与安全 → 辅助功能”中允许 ConvertDesk。
+这是可选快捷方式，不影响窗口内的普通转换。
+若重装后全局快捷方式失效，可删除旧权限项，再添加当前 ConvertDesk.app。
+
+平台与来源
+当前主要交付 Apple Silicon Mac；Intel 构建路径尚未实机验证。
+Windows 后续需要单独完成打包和实机验证。
+此版本基于 Myeonggu Kim（KnifeLemon）及 Filee contributors 的 MIT 项目，
+属于独立衍生版本，并非 Filee 官方发行版。
+随包包含 rhwp 0.8.7（MIT）和 Pandoc 3.12（GPL-2.0-or-later）。
+许可证及源码地址见 LICENSE、THIRD-PARTY-NOTICES.md 与 licenses 目录。

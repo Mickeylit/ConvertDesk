@@ -1,4 +1,4 @@
-// FILEE_DATA_DIR moves the data folder, so a development or test copy never reads or writes the user's own Filee.
+// CONVERTDESK_DATA_DIR moves the data folder; this product never reads or writes the original Filee's data.
 
 using Filee.Core.Settings;
 
@@ -19,7 +19,7 @@ public class DataDirectoryTests
 
             Environment.SetEnvironmentVariable(UserDataStore.DirectoryVariable, null);
             Assert.Null(UserDataStore.OverrideDirectory);
-            Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Filee"),
+            Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ConvertDesk"),
                 UserDataStore.DefaultDirectory);
         }
         finally
@@ -37,4 +37,8 @@ public class DataDirectoryTests
     [Fact]
     public void A_relative_folder_is_made_absolute() =>
         Assert.Equal(Path.Combine(Environment.CurrentDirectory, "filee-test"), UserDataStore.DirectoryFrom("filee-test"));
+
+    [Fact]
+    public void Product_data_uses_its_own_environment_variable() =>
+        Assert.Equal("CONVERTDESK_DATA_DIR", UserDataStore.DirectoryVariable);
 }

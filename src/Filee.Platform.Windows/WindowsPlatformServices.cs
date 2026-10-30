@@ -13,8 +13,8 @@ namespace Filee.Platform.Windows;
 public sealed class WindowsPlatformServices : IPlatformServices
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string ContextMenuKey = @"Software\Classes\*\shell\Filee";
-    private const string AppName = "Filee";
+    private const string ContextMenuKey = @"Software\Classes\*\shell\ConvertDesk";
+    private const string AppName = "ConvertDesk";
 
     /// <summary>Window classes that belong to Explorer windows and the desktop.</summary>
     private static readonly HashSet<string> FileManagerClasses = new(StringComparer.Ordinal)
@@ -281,8 +281,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
     /// </summary>
     public void SetContextMenu(bool enabled, string executablePath, string label)
     {
-        if (ExplorerMenuRegistration.IsSupportedOs)
-            ExplorerMenuRegistration.SetTitle(enabled ? label : null);
+        // ConvertDesk uses its own classic verb; never mutate Filee's Explorer extension.
 
         if (!enabled)
         {
@@ -299,50 +298,10 @@ public sealed class WindowsPlatformServices : IPlatformServices
         CreateShortcut(SendToShortcutPath, executablePath, "--convert", label);
     }
 
-    public ModernContextMenuState GetModernContextMenuState(string executablePath)
-    {
-        try
-        {
-            return Path.GetDirectoryName(executablePath) is { Length: > 0 } folder
-                ? ExplorerMenuRegistration.GetState(folder)
-                : ModernContextMenuState.Unsupported;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            // Asking Windows about packages must never take the app or the settings page down.
-            Trace.TraceWarning($"Reading the Explorer menu state failed: {ex}");
-            return ModernContextMenuState.Unsupported;
-        }
-    }
+    public ModernContextMenuState GetModernContextMenuState(string executablePath) => ModernContextMenuState.Unsupported;
 
-    public Task<ModernContextMenuResult> SetModernContextMenuAsync(bool enabled, string executablePath) => Task.Run(async () =>
-    {
-        var folder = Path.GetDirectoryName(executablePath);
-        if (string.IsNullOrEmpty(folder))
-            return new ModernContextMenuResult(false, Error: "Unknown install folder.");
-
-        ModernContextMenuResult result;
-        try
-        {
-            result = enabled
-                ? await ExplorerMenuRegistration.AddAsync(folder)
-                : await ExplorerMenuRegistration.RemoveAsync(allowElevation: true);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            result = new ModernContextMenuResult(false, Error: ex.Message);
-        }
-
-        // Keep exactly one entry: the title file exists while the Explorer menu setting is on.
-        if (ExplorerMenuRegistration.ReadTitle() is { Length: > 0 } title)
-        {
-            if (GetModernContextMenuState(executablePath) == ModernContextMenuState.On)
-                RemoveClassicVerb();
-            else
-                WriteClassicVerb(executablePath, title);
-        }
-        return result;
-    });
+    public Task<ModernContextMenuResult> SetModernContextMenuAsync(bool enabled, string executablePath) =>
+        Task.FromResult(new ModernContextMenuResult(false, Error: "ConvertDesk uses the classic Explorer context menu."));
 
     private static void WriteClassicVerb(string executablePath, string label)
     {
@@ -401,7 +360,7 @@ public sealed class WindowsPlatformServices : IPlatformServices
     }
 
     private static string SendToShortcutPath =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.SendTo), "Filee.lnk");
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.SendTo), "ConvertDesk.lnk");
 
     private static nint RootWindowAt(int x, int y)
     {

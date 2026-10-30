@@ -2,6 +2,7 @@
 bin/
 obj/
 artifacts/
+/work/
 publish/
 Releases/
 
@@ -10,6 +11,7 @@ engines/
 build/.cache/
 
 # IDE
+.codex/
 .vs/
 .vscode/*
 !.vscode/extensions.json
@@ -22,6 +24,8 @@ build/.cache/
 TestResults/
 *.trx
 coverage*/
+__pycache__/
+*.pyc
 
 # OS
 Thumbs.db

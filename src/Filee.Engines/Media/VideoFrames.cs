@@ -27,13 +27,13 @@ public static class VideoFrames
     private static readonly TimeSpan FrameStall = TimeSpan.FromSeconds(30);
 
     /// <summary>True when FFmpeg is installed (Settings › Engines).</summary>
-    public static bool IsAvailable => FfmpegConverter.Locate() is { } tools && File.Exists(tools.Ffmpeg) && File.Exists(tools.Ffprobe);
+    public static bool IsAvailable => FfmpegTools.Locate() is { } tools && File.Exists(tools.Ffmpeg) && File.Exists(tools.Ffprobe);
 
     /// <summary>The length and size of the video at <paramref name="path"/>.</summary>
     /// <exception cref="InvalidOperationException">FFmpeg is missing, the file can't be read or has no video.</exception>
     public static async Task<VideoSummary> ProbeAsync(string path, CancellationToken cancellationToken)
     {
-        var (_, ffprobe) = FfmpegConverter.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
+        var (_, ffprobe) = FfmpegTools.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
         var info = await MediaInfo.ProbeAsync(ffprobe, Path.GetFullPath(path), cancellationToken);
         var video = info.Video ?? throw new InvalidOperationException("The file has no video stream.");
         var height = video.IsRotated ? video.Width : video.Height;
@@ -46,7 +46,7 @@ public static class VideoFrames
     /// </summary>
     public static async Task<bool> WriteFrameAsync(string path, double seconds, string output, int maxHeight, CancellationToken cancellationToken)
     {
-        var (ffmpeg, _) = FfmpegConverter.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
+        var (ffmpeg, _) = FfmpegTools.Locate() ?? throw new InvalidOperationException("FFmpeg was not found.");
         var arguments = MediaEncoding.FrameAt(Path.GetFullPath(path), Math.Max(0, seconds), output, maxHeight, null);
         var result = await FfmpegRunner.RunAsync(ffmpeg, arguments, null, cancellationToken, FrameStall);
         return result.ExitCode == 0 && File.Exists(output) && new FileInfo(output).Length > 0;

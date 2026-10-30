@@ -2,7 +2,9 @@
 // conversion runs, so a Filee waiting in the tray gives the memory back. Skia's own caches stay: they are shared with
 // the UI's render thread, and purging them while it draws crashed in native code (SKGraphics.PurgeAllCaches).
 
+#if !CONVERTDESK_DOCUMENTS_ONLY
 using Filee.Engines.Cad;
+#endif
 using Filee.Engines.Hwp;
 
 namespace Filee.Engines.Infrastructure;
@@ -18,6 +20,8 @@ public static class EngineCaches
     public static void Release()
     {
         RhwpFonts.ReleaseCache();
+#if !CONVERTDESK_DOCUMENTS_ONLY
         CadFonts.ReleaseCache();
+#endif
     }
 }

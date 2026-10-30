@@ -152,12 +152,12 @@ public class SingleMainWindowTests
             CloseToTray(windows, tracker);
             Pump();
             tracker.ClickWhileBuilding = true;
-            tracker.ClickPage = "watch";
+            tracker.ClickPage = "general";
             tracker.ShowMain();
             Pump();
             tracker.AssertOneMainWindow();
             tracker.AssertOthersClosed();
-            Assert.Equal("watch", ((ViewModels.MainWindowViewModel)windows.Main!.DataContext!).SelectedItem.Key);
+            Assert.Equal("general", ((ViewModels.MainWindowViewModel)windows.Main!.DataContext!).SelectedItem.Key);
         }
         finally
         {

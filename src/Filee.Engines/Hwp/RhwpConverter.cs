@@ -123,8 +123,12 @@ public sealed class RhwpConverter : IConverter, ITextShapingCheck
         catch (TimeoutException ex)
         {
             // E-books reach rhwp through the HWPX writer; calibre makes their PDFs much faster when it is ranked above it.
+#if CONVERTDESK_DOCUMENTS_ONLY
+            throw new ConversionRefusedException("error.rhwp_timeout", ex.Message);
+#else
             throw new ConversionRefusedException(
                 CalibreConverter.Locate() is null ? "error.rhwp_timeout" : "error.rhwp_timeout_calibre", ex.Message);
+#endif
         }
 
         return Finish(step, temp, progress);
@@ -147,7 +151,11 @@ public sealed class RhwpConverter : IConverter, ITextShapingCheck
     /// one Filee wrote from a spreadsheet.
     /// </summary>
     internal static bool UsesDirectBackend(string sourcePath) =>
+#if CONVERTDESK_DOCUMENTS_ONLY
+        false;
+#else
         FormatRegistry.Detect(sourcePath) is { } format && SheetDocument.SourceFormats.Contains(format.Id);
+#endif
 
     /// <summary>
     /// The document rhwp renders: a copy with the fixes of <see cref="RhwpInput"/> (fonts, shape sizes, equation
